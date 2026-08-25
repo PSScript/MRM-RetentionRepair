@@ -52,11 +52,13 @@ param(
     [string]$OutputDirectory = (Join-Path $PSScriptRoot 'evidence')
 )
 
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'   # WITHOUT this the script kept running in APPLY
+                                  # mode after a failed target validation.
+
 Import-Module (Join-Path $PSScriptRoot 'MRM-RetentionRepair.psm1') -Force
 $log = Join-Path $OutputDirectory ("repair-{0:yyyyMMdd-HHmmss}.log" -f (Get-Date))
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
-
-$tgt = Test-MrmTargetRetentionId -TargetRetentionId $TargetRetentionId   # throws on protected/invalid
 
 
 # --- Config mode: JSON settings, CLI overrides config, config overrides defaults
@@ -80,6 +82,16 @@ if ($authMode -eq 'Config') {
                 else { throw "Config ${ConfigPath} provides no authentication material (CertificateThumbprint / CertificatePath / ClientSecretEncrypted)." }
     Write-MrmLog -Level Info -Message "Config loaded: ${ConfigPath} (auth mode: ${authMode}; secrets never logged)."
 }
+
+# Validate the target AFTER config resolution - it used to run before it, so a
+# config-supplied TargetRetentionId was still empty here.
+if ([string]::IsNullOrWhiteSpace($TargetRetentionId)) {
+    throw ("No TargetRetentionId. Supply it on the command line or as " +
+           "\"TargetRetentionId\" in the config. Refusing to run" +
+           $(if ($Apply) { ' - and -Apply was requested, so this would have been a write run.' } else { '.' }))
+}
+$tgt = Test-MrmTargetRetentionId -TargetRetentionId $TargetRetentionId   # throws on protected/invalid
+
 switch ($authMode) {
     'Certificate' {
         $cert = Get-ChildItem $CertificateStore | Where-Object Thumbprint -eq $CertificateThumbprint
@@ -112,7 +124,19 @@ if ($PilotFolderPath) {
     Write-MrmLog -LogPath $log -Level Info -Message "PILOT MODE: scope restricted to exactly '${PilotFolderPath}'."
 }
 
+if ($Apply -and [string]::IsNullOrWhiteSpace($tgt)) {
+    throw 'INTERNAL GUARD: -Apply reached with an empty target. Refusing to write.'
+}
 $candidates = @($scope | Where-Object { $_.HasPhysicalPolicyTag -and $_.PolicyTagRetentionId -eq $tgt })
+
+# An APPLY run that matches nothing is almost always a wrong target or a wrong
+# pilot path - say so instead of printing a reassuring "0 folders".
+if ($Apply -and $candidates.Count -eq 0) {
+    Write-MrmLog -LogPath $log -Level Warning -Message (
+        "APPLY requested but ZERO folders match target ${tgt}" +
+        $(if ($PilotFolderPath) { " within '${PilotFolderPath}'" } else { '' }) +
+        '. Nothing will be written. Check the target GUID and the pilot path against the census CSV.')
+}
 
 Write-Host ''
 Write-Host '=============================================================='

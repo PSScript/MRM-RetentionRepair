@@ -726,3 +726,30 @@ Describe 'Search-then-load pattern (EWS property-bag caching)' {
         $src | Should -Match 'LoadPropertiesForItems returned no PolicyTag'
     }
 }
+
+Describe 'Repair script fail-fast (APPLY must never proceed on bad input)' {
+    BeforeAll { $script:RepairSrc = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'Invoke-MrmRetentionRepair.ps1') -Raw }
+
+    It 'sets ErrorActionPreference Stop - it did not, and APPLY kept running after a failed validation' {
+        $RepairSrc | Should -Match "\`$ErrorActionPreference = 'Stop'"
+        $RepairSrc | Should -Match 'kept running in APPLY'
+    }
+    It 'validates the target AFTER config resolution, not before' {
+        # The validation used to sit above the config block, so a
+        # config-supplied TargetRetentionId was still empty when checked.
+        $cfgIdx = $RepairSrc.IndexOf('Config loaded: ${ConfigPath}')
+        $valIdx = $RepairSrc.IndexOf('$tgt = Test-MrmTargetRetentionId')
+        $cfgIdx | Should -BeGreaterThan 0
+        $valIdx | Should -BeGreaterThan $cfgIdx
+    }
+    It 'refuses an empty target explicitly, and names the risk when -Apply was requested' {
+        $RepairSrc | Should -Match 'No TargetRetentionId'
+        $RepairSrc | Should -Match 'this would have been a write run'
+    }
+    It 'carries an internal guard against writing with an empty target' {
+        $RepairSrc | Should -Match 'INTERNAL GUARD: -Apply reached with an empty target'
+    }
+    It 'warns instead of silently reporting zero matches in APPLY mode' {
+        $RepairSrc | Should -Match 'APPLY requested but ZERO folders match target'
+    }
+}
