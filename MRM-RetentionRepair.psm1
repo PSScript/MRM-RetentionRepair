@@ -845,8 +845,13 @@ function ConvertTo-MrmFolderPath {
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][AllowEmptyString()][string]$RawPath)
+    # MS-OXPROPS documents U+FFFE as the PR_FOLDER_PATH separator, but real
+    # Exchange Online mailboxes were observed returning BACKSLASH separators
+    # (live run: "\Aktenschrank\Kunden\Brasilien"). Normalize both, then
+    # collapse any duplicate slashes the substitution may produce.
     $sep = [string][char]0xFFFE
-    $p = $RawPath.Replace($sep, '/')
+    $p = $RawPath.Replace($sep, '/').Replace('\', '/')
+    $p = [regex]::Replace($p, '/{2,}', '/')
     if (-not $p.StartsWith('/')) { $p = '/' + $p }
     return $p
 }
@@ -1041,11 +1046,33 @@ function Get-MrmItemAudit {
         $view.PropertySet = $ps
         $collected = 0
         do {
-            $page = Invoke-MrmEwsWithRetry { $Service.FindItems($fid, $existsItemTag, $view) }
+            # Call FindItems DIRECTLY (no retry wrapper) with an inline bounded
+            # retry. On the live run the wrapped call returned $null with no
+            # exception; calling directly makes any real fault surface as a
+            # real exception instead of a silent null.
+            $page = $null
+            $attempt = 0
+            while ($true) {
+                try {
+                    $page = $Service.FindItems($fid, $existsItemTag, $view)
+                    break
+                }
+                catch {
+                    $attempt++
+                    $m = $_.Exception.Message
+                    if ($attempt -gt 3 -or $m -notmatch 'ServerBusy|too busy|throttl|429|503') {
+                        throw ("EWS FindItems failed for '$($folder.FolderPath)' " +
+                               "(FolderId $($folder.FolderId)): ${m}")
+                    }
+                    Write-MrmLog -Level Warning -Message "FindItems throttled (attempt ${attempt}/3); backing off"
+                    Start-Sleep -Milliseconds ([Math]::Min(30000, 1000 * [Math]::Pow(2, $attempt)))
+                }
+            }
             if ($null -eq $page) {
-                throw ("EWS FindItems returned nothing for '$($folder.FolderPath)'. " +
-                       "This is an API/permission problem, NOT an empty folder - refusing to " +
-                       "report zero physically stamped items.")
+                throw ("EWS FindItems returned `$null for '$($folder.FolderPath)' " +
+                       "(FolderId $($folder.FolderId)). An empty folder returns an EMPTY RESULT " +
+                       "object, never `$null - so this is an API/scoping/permission problem. " +
+                       "Refusing to report zero physically stamped items.")
             }
             if (-not $page.PSObject.Properties['Items']) {
                 throw ("EWS FindItems returned an unexpected object type " +
@@ -1124,7 +1151,8 @@ function Get-MrmFolderRawState {
     $ps.Add($props.RetentionFlags); $ps.Add($props.ArchiveTag); $ps.Add($props.FolderPath)
 
     $fid = [Microsoft.Exchange.WebServices.Data.FolderId]::new($FolderId)
-    $f = Invoke-MrmEwsWithRetry { [Microsoft.Exchange.WebServices.Data.Folder]::Bind($Service, $fid, $ps) }
+    $bindOp = { [Microsoft.Exchange.WebServices.Data.Folder]::Bind($Service, $fid, $ps) }.GetNewClosure()
+    $f = Invoke-MrmEwsWithRetry -Operation $bindOp
     $rec = ConvertTo-MrmCensusRecord -Folder $f -Props $props
     $rec | Add-Member -NotePropertyName CapturedUtc -NotePropertyValue ([DateTime]::UtcNow.ToString('o'))
     return $rec
@@ -1194,7 +1222,8 @@ function Invoke-MrmFolderUntag {
 
         Write-MrmLog -LogPath $LogPath -Level Change -Message "UNTAG: $($c.FolderPath)"
         $fid = [Microsoft.Exchange.WebServices.Data.FolderId]::new($c.FolderId)
-        $folder = Invoke-MrmEwsWithRetry { [Microsoft.Exchange.WebServices.Data.Folder]::Bind($Service, $fid) }
+        $bindOp = { [Microsoft.Exchange.WebServices.Data.Folder]::Bind($Service, $fid) }.GetNewClosure()
+        $folder = Invoke-MrmEwsWithRetry -Operation $bindOp
 
         # Final in-object guard on the typed property as well.
         if (-not $folder.PolicyTag -or $folder.PolicyTag.RetentionId.ToString().ToLowerInvariant() -ne $tgt) {
@@ -1203,7 +1232,8 @@ function Invoke-MrmFolderUntag {
         }
 
         $folder.PolicyTag = $null            # native EWS semantic - the oracle behavior
-        Invoke-MrmEwsWithRetry { $folder.Update() } | Out-Null
+        $updateOp = { $folder.Update() }.GetNewClosure()
+        Invoke-MrmEwsWithRetry -Operation $updateOp | Out-Null
 
         $after = Get-MrmFolderRawState -Service $Service -FolderId $c.FolderId
         $record = [pscustomobject]@{

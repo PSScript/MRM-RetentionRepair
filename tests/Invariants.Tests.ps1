@@ -625,3 +625,22 @@ Describe 'Live-run regressions (first real tenant run)' {
         $src | Should -Match 'Do NOT read this as "no item stamps"'
     }
 }
+
+Describe 'Folder path normalization (live tenant used backslashes)' {
+    It 'normalizes U+FFFE, backslash and mixed separators identically' {
+        $sep = [string][char]0xFFFE
+        ConvertTo-MrmFolderPath -RawPath '\Archive\Projects\ProjectA'            | Should -Be '/Archive/Projects/ProjectA'
+        ConvertTo-MrmFolderPath -RawPath "${sep}Archive${sep}Projects${sep}ProjectA" | Should -Be '/Archive/Projects/ProjectA'
+        ConvertTo-MrmFolderPath -RawPath '\Mixed/Separators\Here'                | Should -Be '/Mixed/Separators/Here'
+        ConvertTo-MrmFolderPath -RawPath '/Already/Clean'                        | Should -Be '/Already/Clean'
+    }
+    It 'collapses duplicate slashes instead of emitting /\ prefixes' {
+        # The first live run printed "/\Aktenschrank\Kunden\Brasilien" because
+        # only U+FFFE was substituted and a leading '/' was then prepended.
+        ConvertTo-MrmFolderPath -RawPath '\Aktenschrank\Kunden\Brasilien' | Should -Not -Match '\\'
+        ConvertTo-MrmFolderPath -RawPath '//double//slash'                | Should -Be '/double/slash'
+    }
+    It 'keeps non-ASCII folder names intact' {
+        ConvertTo-MrmFolderPath -RawPath '\Übersicht\Straßenbau' | Should -Be '/Übersicht/Straßenbau'
+    }
+}
