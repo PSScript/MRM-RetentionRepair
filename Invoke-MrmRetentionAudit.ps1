@@ -16,15 +16,20 @@
 #>
 [CmdletBinding(DefaultParameterSetName='Certificate')]
 param(
-    [Parameter(Mandatory)][string]$TenantId,
-    [Parameter(Mandatory)][string]$ClientId,
+    [Parameter(Mandatory, ParameterSetName='Certificate')][Parameter(Mandatory, ParameterSetName='CertificateFile')][Parameter(Mandatory, ParameterSetName='Secret')]
+    [Parameter(ParameterSetName='Config')][string]$TenantId,
+    [Parameter(Mandatory, ParameterSetName='Certificate')][Parameter(Mandatory, ParameterSetName='CertificateFile')][Parameter(Mandatory, ParameterSetName='Secret')]
+    [Parameter(ParameterSetName='Config')][string]$ClientId,
     [Parameter(Mandatory, ParameterSetName='Certificate')][string]$CertificateThumbprint,
     [Parameter(ParameterSetName='Certificate')][string]$CertificateStore = 'Cert:\CurrentUser\My',
     [Parameter(Mandatory, ParameterSetName='CertificateFile')][string]$CertificatePath,
     [Parameter(ParameterSetName='CertificateFile')][securestring]$CertificatePassword,
     [Parameter(Mandatory, ParameterSetName='Secret')][securestring]$ClientSecret,
-    [Parameter(Mandatory)][string]$Mailbox,
-    [Parameter(Mandatory)][string]$TargetRetentionId,
+    [Parameter(Mandatory, ParameterSetName='Config')][string]$ConfigPath,
+    [Parameter(Mandatory, ParameterSetName='Certificate')][Parameter(Mandatory, ParameterSetName='CertificateFile')][Parameter(Mandatory, ParameterSetName='Secret')]
+    [Parameter(ParameterSetName='Config')][string]$Mailbox,
+    [Parameter(Mandatory, ParameterSetName='Certificate')][Parameter(Mandatory, ParameterSetName='CertificateFile')][Parameter(Mandatory, ParameterSetName='Secret')]
+    [Parameter(ParameterSetName='Config')][string]$TargetRetentionId,
     [Nullable[int]]$KnownEffectiveCount,       # e.g. 261 from external Get-MailboxFolderStatistics
     [switch]$IncludeItemAudit,
     [int]$MaxItemsPerFolder = 2000,
@@ -37,7 +42,29 @@ $log = Join-Path $OutputDirectory ("audit-{0:yyyyMMdd-HHmmss}.log" -f (Get-Date)
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 
 # --- token -------------------------------------------------------------------
-switch ($PSCmdlet.ParameterSetName) {
+
+# --- Config mode: JSON settings, CLI overrides config, config overrides defaults
+$authMode = $PSCmdlet.ParameterSetName
+if ($authMode -eq 'Config') {
+    $cfg = Get-MrmConfig -Path $ConfigPath
+    foreach ($n in @('TenantId','ClientId','Mailbox','TargetRetentionId','KnownEffectiveCount','MaxItemsPerFolder','OutputDirectory','CertificateThumbprint','CertificateStore','CertificatePath')) {
+        if (-not $PSBoundParameters.ContainsKey($n) -and $cfg.PSObject.Properties[$n] -and
+            $null -ne $cfg.$n -and '' -ne [string]$cfg.$n) {
+            Set-Variable -Name $n -Value $cfg.$n -WhatIf:$false -Confirm:$false
+        }
+    }
+    if (-not $ClientSecret        -and $cfg.PSObject.Properties['ClientSecret']        -and $cfg.ClientSecret)        { $ClientSecret        = $cfg.ClientSecret }
+    if (-not $CertificatePassword -and $cfg.PSObject.Properties['CertificatePassword'] -and $cfg.CertificatePassword) { $CertificatePassword = $cfg.CertificatePassword }
+    foreach ($req in @('TenantId','ClientId','Mailbox','TargetRetentionId')) {
+        if (-not (Get-Variable -Name $req -ValueOnly)) { throw "Config/CLI is missing required setting: ${req} (${ConfigPath})" }
+    }
+    $authMode = if ($CertificateThumbprint) { 'Certificate' }
+                elseif ($CertificatePath)   { 'CertificateFile' }
+                elseif ($ClientSecret)      { 'Secret' }
+                else { throw "Config ${ConfigPath} provides no authentication material (CertificateThumbprint / CertificatePath / ClientSecretEncrypted)." }
+    Write-MrmLog -Level Info -Message "Config loaded: ${ConfigPath} (auth mode: ${authMode}; secrets never logged)."
+}
+switch ($authMode) {
     'Certificate' {
         $cert = Get-ChildItem $CertificateStore | Where-Object Thumbprint -eq $CertificateThumbprint
         if (-not $cert) { throw "Certificate ${CertificateThumbprint} not found in ${CertificateStore}." }

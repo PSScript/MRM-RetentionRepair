@@ -38,6 +38,47 @@ Kompatibilität
 - Tests: Pester 5+/6 unter pwsh (Hinweis: ein Describe-Name darf kein "<->"
   enthalten — Escaped-Flow-Control-Bug in Pester 6.1.0).
 
+
+Anleitung (Quickstart)
+----------------------
+1. **Config anlegen** (interaktiv; Secret wird verdeckt abgefragt und
+   DPAPI-verschlüsselt gespeichert — Benutzer+Maschine-gebunden):
+
+       ./Manage-MrmConfig.ps1 -Action Create -ConfigPath ./configs/TENANT-A.json
+       ./Manage-MrmConfig.ps1 -Action Test   -ConfigPath ./configs/TENANT-A.json   # Pflichtfelder + EWS/Graph-Token
+       ./Manage-MrmConfig.ps1 -Action Show   -ConfigPath ./configs/TENANT-A.json   # Secrets maskiert
+
+   Beispiel-JSONs mit Dummy-Daten: [docs/Config-Examples.md](docs/Config-Examples.md).
+   CLI-Parameter überschreiben Config-Werte, Config überschreibt Defaults.
+
+2. **Gate 1–4 — Read-only-Audit** (Zensus + Falsifier + Item-Audit):
+
+       ./Invoke-MrmRetentionAudit.ps1 -ConfigPath ./configs/TENANT-A.json -IncludeItemAudit
+
+3. **Gate 5 — Pilot** (genau EIN Ordner, Fixtures für den Graph-Vertrag):
+
+       ./Invoke-MrmRetentionRepair.ps1 -ConfigPath ./configs/TENANT-A.json `
+           -Apply -PilotFolderPath '/Archive/Projects/ProjectB' -CaptureFixture
+
+   Dazwischen extern verifizieren:
+   `Get-MailboxFolderStatistics <mbx> -IncludeAnalysis | Select FolderPath,DeletePolicy,RetentionFlags`
+
+4. **Gate 6 — Bulk** (Dry-Run ist Default; ohne `-Apply` passiert nichts):
+
+       ./Invoke-MrmRetentionRepair.ps1 -ConfigPath ./configs/TENANT-A.json -Apply
+
+5. **Gate 7 — Graph-Read-Parität** (tokenbasiert oder Mg-SDK, gleiches Evidence-Format):
+
+       ./Invoke-MrmGraphParity.ps1    -ConfigPath ./configs/TENANT-A.json -EwsCensusJson ./evidence/folder-census-<ts>.json
+       ./Invoke-MrmGraphParity.Mg.ps1 -ConfigPath ./configs/TENANT-A.json -EwsCensusJson ./evidence/folder-census-<ts>.json
+
+6. **Gate 8 — Write-Experiment** (nur Wegwerf-Ordner, doppelt gegated):
+
+       ./Invoke-MrmGraphParity.ps1 -ConfigPath ./configs/TENANT-A.json `
+           -ExperimentalWriteProbe -ProbeGraphFolderId <id> -IUnderstandThisIsAnExperiment
+
+Alle Gates, Reihenfolge (Restore VOR MFA!) und Rollback-Grenzen: [docs/RUNBOOK.md](docs/RUNBOOK.md).
+
 Leitplanken
 -----------
 - Schreibzugriff nur, wenn die aktuell gelesene physische RetentionId EXAKT dem

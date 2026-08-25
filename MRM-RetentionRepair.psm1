@@ -202,6 +202,75 @@ function Test-MrmWriteAllowed {
 # OAuth (app-only) — client credentials, secret or certificate
 # ============================================================================
 
+#region Config (JSON, DPAPI secret handling — tokenhandler/Resend-GraphReplay ergonomics)
+
+function Protect-MrmSecretString {
+    <# SecureString -> encrypted standard string. On Windows this is DPAPI:
+       bound to THIS user on THIS machine. On other platforms PowerShell falls
+       back to an obfuscated (NOT cryptographically protected) encoding —
+       treat configs as Windows-user-bound artifacts. #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][securestring]$Secret)
+    return (ConvertFrom-SecureString -SecureString $Secret)
+}
+
+function Unprotect-MrmSecretString {
+    <# Encrypted standard string (DPAPI) -> SecureString. Fails with a clear
+       message when the blob was created by a different user/machine. #>
+    [CmdletBinding()]
+    [OutputType([securestring])]
+    param([Parameter(Mandatory)][string]$Encrypted)
+    try { return (ConvertTo-SecureString -String $Encrypted -ErrorAction Stop) }
+    catch {
+        throw ("Cannot decrypt secret from config: DPAPI blobs are bound to the " +
+               "user+machine that created them. Re-run Manage-MrmConfig.ps1 -Action Encrypt " +
+               "on THIS machine as THIS user. Inner: " + $_.Exception.Message)
+    }
+}
+
+function Get-MrmConfig {
+    <# Loads a JSON run config and resolves secrets:
+         ClientSecretEncrypted        -> .ClientSecret        (SecureString)
+         CertificatePasswordEncrypted -> .CertificatePassword (SecureString)
+       A plaintext "ClientSecret" field is accepted but loudly discouraged. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path)
+    if (-not (Test-Path $Path)) { throw "Config not found: ${Path}" }
+    $cfg = Get-Content $Path -Raw -Encoding UTF8 | ConvertFrom-Json
+
+    $resolved = @{}
+    foreach ($p in $cfg.PSObject.Properties) { $resolved[$p.Name] = $p.Value }
+
+    if ($resolved.ContainsKey('ClientSecretEncrypted') -and $resolved['ClientSecretEncrypted']) {
+        $resolved['ClientSecret'] = Unprotect-MrmSecretString -Encrypted $resolved['ClientSecretEncrypted']
+    }
+    elseif ($resolved.ContainsKey('ClientSecret') -and $resolved['ClientSecret'] -is [string] -and $resolved['ClientSecret']) {
+        Write-MrmLog -Level Warning -Message "Config ${Path} stores a PLAINTEXT ClientSecret. Run Manage-MrmConfig.ps1 -Action Encrypt."
+        $resolved['ClientSecret'] = ConvertTo-SecureString -String $resolved['ClientSecret'] -AsPlainText -Force
+    }
+    if ($resolved.ContainsKey('CertificatePasswordEncrypted') -and $resolved['CertificatePasswordEncrypted']) {
+        $resolved['CertificatePassword'] = Unprotect-MrmSecretString -Encrypted $resolved['CertificatePasswordEncrypted']
+    }
+    return [pscustomobject]$resolved
+}
+
+function Resolve-MrmEffectiveSetting {
+    <# CLI beats config: returns the bound CLI value when present, else the
+       config value, else $null. #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][hashtable]$BoundParameters,
+        [Parameter(Mandatory)][object]$Config,
+        [Parameter(Mandatory)][string]$Name
+    )
+    if ($BoundParameters.ContainsKey($Name)) { return $BoundParameters[$Name] }
+    if ($Config.PSObject.Properties[$Name])  { return $Config.$Name }
+    return $null
+}
+
+#endregion
+
 function New-MrmClientAssertion {
     <# Builds a signed JWT client assertion (RS256) for certificate auth. #>
     [CmdletBinding()]
@@ -1080,6 +1149,6 @@ Export-ModuleMember -Function @(
     'Get-MrmEwsPropertyDefinitions','Get-MrmFolderCensus','ConvertTo-MrmCensusRecord',
     'Get-MrmCensusSummary','Get-MrmItemAudit','Invoke-MrmEwsWithRetry',
     'Get-MrmFolderRawState','Invoke-MrmFolderUntag','Export-MrmEvidence',
-    'Invoke-MrmGraphRequest','Invoke-MrmGraphCall','Get-MrmGraphFolderCensus','ConvertTo-MrmGraphCensusRecord',
+    'Invoke-MrmGraphRequest','Invoke-MrmGraphCall','Protect-MrmSecretString','Unprotect-MrmSecretString','Get-MrmConfig','Resolve-MrmEffectiveSetting','Get-MrmGraphFolderCensus','ConvertTo-MrmGraphCensusRecord',
     'Compare-MrmCensusParity','Get-MrmGraphItemAudit','Invoke-MrmGraphWriteProbe'
 )

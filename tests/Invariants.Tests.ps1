@@ -277,3 +277,43 @@ Describe 'STATIC: forbidden operations are absent (AST scan of all shipped code)
         }
     }
 }
+
+Describe 'JSON config + secret handling (tokenhandler ergonomics)' {
+    It 'round-trips a secret through Protect/Unprotect (platform encoding)' {
+        $sec = ConvertTo-SecureString 'do-not-log-me' -AsPlainText -Force
+        $enc = Protect-MrmSecretString -Secret $sec
+        $enc | Should -Not -Match 'do-not-log-me'
+        $back = Unprotect-MrmSecretString -Encrypted $enc
+        ([System.Net.NetworkCredential]::new('', $back)).Password | Should -Be 'do-not-log-me'
+    }
+    It 'loads a config, decrypts ClientSecretEncrypted, and never exposes plaintext on the object' {
+        $tmp = Join-Path ([IO.Path]::GetTempPath()) "mrmcfg-$([guid]::NewGuid()).json"
+        $sec = ConvertTo-SecureString 's3cret' -AsPlainText -Force
+        [ordered]@{
+            TenantId='t'; ClientId='c'; Mailbox='user@contoso.com'
+            TargetRetentionId='d94993b5-e987-4275-8707-072057cfb2b8'
+            ClientSecretEncrypted=(Protect-MrmSecretString -Secret $sec)
+            KnownEffectiveCount=261
+        } | ConvertTo-Json | Set-Content $tmp -Encoding UTF8
+        $cfg = Get-MrmConfig -Path $tmp
+        $cfg.TenantId | Should -Be 't'
+        $cfg.KnownEffectiveCount | Should -Be 261
+        $cfg.ClientSecret | Should -BeOfType [securestring]
+        ($cfg | ConvertTo-Json -Depth 3) | Should -Not -Match 's3cret'
+        Remove-Item $tmp -Force
+    }
+    It 'accepts a plaintext ClientSecret field but converts it to SecureString' {
+        $tmp = Join-Path ([IO.Path]::GetTempPath()) "mrmcfg-$([guid]::NewGuid()).json"
+        '{"TenantId":"t","ClientId":"c","Mailbox":"m","TargetRetentionId":"d94993b5-e987-4275-8707-072057cfb2b8","ClientSecret":"plain-pw"}' |
+            Set-Content $tmp -Encoding UTF8
+        $cfg = Get-MrmConfig -Path $tmp
+        $cfg.ClientSecret | Should -BeOfType [securestring]
+        Remove-Item $tmp -Force
+    }
+    It 'CLI beats config in Resolve-MrmEffectiveSetting' {
+        $cfg = [pscustomobject]@{ Mailbox = 'cfg@contoso.com' }
+        Resolve-MrmEffectiveSetting -BoundParameters @{ Mailbox = 'cli@contoso.com' } -Config $cfg -Name Mailbox | Should -Be 'cli@contoso.com'
+        Resolve-MrmEffectiveSetting -BoundParameters @{} -Config $cfg -Name Mailbox | Should -Be 'cfg@contoso.com'
+        Resolve-MrmEffectiveSetting -BoundParameters @{} -Config $cfg -Name Missing | Should -BeNullOrEmpty
+    }
+}

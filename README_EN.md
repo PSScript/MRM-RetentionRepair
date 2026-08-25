@@ -37,6 +37,27 @@ Compatibility
 - Tests: Pester 5+/6 under pwsh (note: a Describe name must not contain "<->" —
   Pester 6.1.0 escaped-flow-control bug).
 
+
+Usage (quickstart)
+------------------
+1. **Create a config** (interactive; secrets prompted hidden and stored
+   DPAPI-encrypted — bound to user+machine):
+
+       ./Manage-MrmConfig.ps1 -Action Create -ConfigPath ./configs/TENANT-A.json
+       ./Manage-MrmConfig.ps1 -Action Test   -ConfigPath ./configs/TENANT-A.json   # required fields + EWS/Graph tokens
+       ./Manage-MrmConfig.ps1 -Action Show   -ConfigPath ./configs/TENANT-A.json   # secrets masked
+
+   Example JSONs with dummy data: [docs/Config-Examples.md](docs/Config-Examples.md).
+   CLI parameters override config values; config overrides script defaults.
+
+2. **Gates 1-4 — read-only audit**:   `./Invoke-MrmRetentionAudit.ps1 -ConfigPath ./configs/TENANT-A.json -IncludeItemAudit`
+3. **Gate 5 — pilot** (ONE folder):   `./Invoke-MrmRetentionRepair.ps1 -ConfigPath ./configs/TENANT-A.json -Apply -PilotFolderPath '/Archive/Projects/ProjectB' -CaptureFixture`
+4. **Gate 6 — bulk** (dry-run default): `./Invoke-MrmRetentionRepair.ps1 -ConfigPath ./configs/TENANT-A.json -Apply`
+5. **Gate 7 — Graph read parity**:    `./Invoke-MrmGraphParity.ps1 -ConfigPath ./configs/TENANT-A.json -EwsCensusJson ./evidence/folder-census-<ts>.json` (or `.Mg.ps1`)
+6. **Gate 8 — write experiment** (disposable folder, double-gated): add `-ExperimentalWriteProbe -ProbeGraphFolderId <id> -IUnderstandThisIsAnExperiment`
+
+Gates, ordering (restore BEFORE MFA!) and rollback limits: [docs/RUNBOOK.md](docs/RUNBOOK.md).
+
 Run tests:  pwsh -c "Invoke-Pester -Path ./tests"
 Start here: docs/RUNBOOK.md
 References: PSScript/tokenhandler (throttling/token patterns),

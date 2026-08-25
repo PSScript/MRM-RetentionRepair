@@ -18,13 +18,19 @@ default. Both feed the same module functions, so parity evidence is identical.
 #>
 [CmdletBinding(DefaultParameterSetName='Certificate')]
 param(
-    [Parameter(Mandatory)][string]$TenantId,
-    [Parameter(Mandatory)][string]$ClientId,
+    [Parameter(Mandatory, ParameterSetName='Certificate')][Parameter(Mandatory, ParameterSetName='Secret')]
+    [Parameter(ParameterSetName='Config')][string]$TenantId,
+    [Parameter(Mandatory, ParameterSetName='Certificate')][Parameter(Mandatory, ParameterSetName='Secret')]
+    [Parameter(ParameterSetName='Config')][string]$ClientId,
     [Parameter(Mandatory, ParameterSetName='Certificate')][string]$CertificateThumbprint,
     [Parameter(Mandatory, ParameterSetName='Secret')][securestring]$ClientSecret,
-    [Parameter(Mandatory)][string]$Mailbox,
-    [Parameter(Mandatory)][string]$TargetRetentionId,
-    [Parameter(Mandatory)][string]$EwsCensusJson,
+    [Parameter(Mandatory, ParameterSetName='Config')][string]$ConfigPath,
+    [Parameter(Mandatory, ParameterSetName='Certificate')][Parameter(Mandatory, ParameterSetName='Secret')]
+    [Parameter(ParameterSetName='Config')][string]$Mailbox,
+    [Parameter(Mandatory, ParameterSetName='Certificate')][Parameter(Mandatory, ParameterSetName='Secret')]
+    [Parameter(ParameterSetName='Config')][string]$TargetRetentionId,
+    [Parameter(Mandatory, ParameterSetName='Certificate')][Parameter(Mandatory, ParameterSetName='Secret')]
+    [Parameter(ParameterSetName='Config')][string]$EwsCensusJson,
     [string]$EvidenceDirectory = (Join-Path (Get-Location) 'evidence'),
     [switch]$IncludeHidden,
     # ---- Gate 8 (experimental, disposable folder only) ----
@@ -36,8 +42,27 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'MRM-RetentionRepair.psm1') -Force
 
+# --- Config mode: JSON settings, CLI overrides config -----------------------
+$authMode = $PSCmdlet.ParameterSetName
+if ($authMode -eq 'Config') {
+    $cfg = Get-MrmConfig -Path $ConfigPath
+    foreach ($n in @('TenantId','ClientId','Mailbox','TargetRetentionId','EwsCensusJson','EvidenceDirectory','CertificateThumbprint')) {
+        if (-not $PSBoundParameters.ContainsKey($n) -and $cfg.PSObject.Properties[$n] -and
+            $null -ne $cfg.$n -and '' -ne [string]$cfg.$n) {
+            Set-Variable -Name $n -Value $cfg.$n -WhatIf:$false -Confirm:$false
+        }
+    }
+    if (-not $ClientSecret -and $cfg.PSObject.Properties['ClientSecret'] -and $cfg.ClientSecret) { $ClientSecret = $cfg.ClientSecret }
+    foreach ($req in @('TenantId','ClientId','Mailbox','TargetRetentionId','EwsCensusJson')) {
+        if (-not (Get-Variable -Name $req -ValueOnly)) { throw "Config/CLI is missing required setting: ${req} (${ConfigPath})" }
+    }
+    $authMode = if ($CertificateThumbprint) { 'Certificate' } elseif ($ClientSecret) { 'Secret' }
+                else { throw "Config ${ConfigPath} provides no authentication material." }
+    Write-MrmLog -Level Info -Message "Config loaded: ${ConfigPath} (auth mode: ${authMode}; secrets never logged)."
+}
+
 # --- Connect via SDK (app-only) -------------------------------------------
-if ($PSCmdlet.ParameterSetName -eq 'Certificate') {
+if ($authMode -eq 'Certificate') {
     Connect-MgGraph -TenantId $TenantId -ClientId $ClientId `
         -CertificateThumbprint $CertificateThumbprint -NoWelcome
 } else {
@@ -60,7 +85,7 @@ $handler = {
 }
 
 # --- Same evidence flow as the token variant -------------------------------
-$Target = Test-MrmTargetRetentionId -RetentionId $TargetRetentionId
+$Target = Test-MrmTargetRetentionId -TargetRetentionId $TargetRetentionId
 if (-not (Test-Path $EwsCensusJson)) { throw "EWS census not found: ${EwsCensusJson}" }
 $ewsCensus = Get-Content $EwsCensusJson -Raw | ConvertFrom-Json
 if (-not (Test-Path $EvidenceDirectory)) { New-Item -ItemType Directory -Path $EvidenceDirectory -Force | Out-Null }

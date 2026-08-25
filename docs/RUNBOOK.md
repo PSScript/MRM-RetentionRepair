@@ -68,7 +68,8 @@ Both call the same module functions and emit identical evidence/parity files
 | 7 | Graph read parity report clean. |
 | 8 | Graph write probe — only on a disposable folder, only after Gate 7, and only "proven" if EWS re-read matches the Gate-5 fixture. |
 
-Commands:
+Commands (Parameter direkt oder via `-ConfigPath ./configs/<name>.json` — siehe
+[Config-Examples.md](Config-Examples.md); CLI schlägt Config schlägt Default):
 
 ```powershell
 # Gate 1-4 (read-only; -KnownEffectiveCount 261 from the external EXO census)
