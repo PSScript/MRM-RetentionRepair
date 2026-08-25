@@ -948,7 +948,11 @@ function ConvertTo-MrmCensusRecord {
     $path = if ($rawPath) { ConvertTo-MrmFolderPath -RawPath $rawPath } else { '/' + $Folder.DisplayName }
 
     [pscustomobject]@{
-        FolderPath             = $path
+        FolderPath             = $path      # normalized, for DISPLAY and reports
+        FolderPathRaw          = $rawPath   # exactly as 0x66B5 returned it
+        # NB: a folder NAME may contain '/' (this tenant has "200031891 1297498/500").
+        # After normalization the separator and the literal are indistinguishable,
+        # so NEVER address a folder by FolderPath - use FolderId.
         DisplayName            = $Folder.DisplayName
         FolderId               = $Folder.Id.UniqueId
         ParentFolderId         = if ($Folder.ParentFolderId) { $Folder.ParentFolderId.UniqueId } else { $null }

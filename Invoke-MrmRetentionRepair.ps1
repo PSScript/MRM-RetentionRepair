@@ -47,7 +47,8 @@ param(
     [Parameter(Mandatory, ParameterSetName='Certificate')][Parameter(Mandatory, ParameterSetName='CertificateFile')][Parameter(Mandatory, ParameterSetName='Secret')]
     [Parameter(ParameterSetName='Config')][string]$TargetRetentionId,
     [switch]$Apply,
-    [string]$PilotFolderPath,          # restrict Apply to exactly one folder path (Gate 5)
+    [string]$PilotFolderId,            # PREFERRED: unambiguous EWS FolderId from the census
+    [string]$PilotFolderPath,          # convenience only - see the caveat below
     [switch]$CaptureFixture,           # persist redacted before/after fixtures for the Graph oracle
     [string]$OutputDirectory = (Join-Path $PSScriptRoot 'evidence')
 )
@@ -118,10 +119,42 @@ $census = Get-MrmFolderCensus -Service $service
 Export-MrmEvidence -Records $census -OutputDirectory $OutputDirectory -BaseName 'pre-repair-census' | Out-Null
 
 $scope = $census
-if ($PilotFolderPath) {
+if ($PilotFolderId -and $PilotFolderPath) {
+    throw 'Use either -PilotFolderId or -PilotFolderPath, not both.'
+}
+if ($PilotFolderId) {
+    # The ID is the only unambiguous address. Folder PATHS are display strings:
+    # separators differ per API (0x66B5 uses U+FFFE, EXO returns backslashes,
+    # MailboxFolderPermission wants mailbox:\a\b) and a folder NAME may itself
+    # contain a slash - this mailbox has '200031891 1297498/500'. Matching on a
+    # normalized path can therefore hit the wrong folder or none at all.
+    $scope = @($census | Where-Object FolderId -eq $PilotFolderId)
+    if (-not $scope) { throw "PilotFolderId not found in census: ${PilotFolderId}" }
+    Write-MrmLog -LogPath $log -Level Info -Message "PILOT MODE (by FolderId): '$($scope[0].FolderPath)'."
+}
+elseif ($PilotFolderPath) {
     $scope = @($census | Where-Object FolderPath -eq $PilotFolderPath)
-    if (-not $scope) { throw "PilotFolderPath '${PilotFolderPath}' not found in census." }
-    Write-MrmLog -LogPath $log -Level Info -Message "PILOT MODE: scope restricted to exactly '${PilotFolderPath}'."
+    if (-not $scope) {
+        # Be helpful: paths are easy to get wrong, so show near misses.
+        $leaf  = ($PilotFolderPath -split '/')[-1]
+        $near  = @($census | Where-Object { $_.DisplayName -eq $leaf -or $_.FolderPath -like "*${leaf}*" } |
+                   Select-Object -First 5)
+        $hint  = if ($near) {
+            "Did you mean one of:" + [Environment]::NewLine +
+            (($near | ForEach-Object { "    $($_.FolderPath)   [FolderId $($_.FolderId.Substring(0,24))...]" }) -join [Environment]::NewLine)
+        } else { 'No similar folder name in the census either.' }
+        throw ("PilotFolderPath '${PilotFolderPath}' not found in census. " +
+               "Folder paths are display strings and are NOT a reliable address - " +
+               "prefer -PilotFolderId (column FolderId in the census CSV)." +
+               [Environment]::NewLine + $hint)
+    }
+    if ($scope.Count -gt 1) {
+        throw ("PilotFolderPath '${PilotFolderPath}' matches $($scope.Count) folders - " +
+               'ambiguous. Use -PilotFolderId instead.')
+    }
+    Write-MrmLog -LogPath $log -Level Warning -Message (
+        "PILOT MODE (by path): '${PilotFolderPath}' -> FolderId $($scope[0].FolderId.Substring(0,24))... " +
+        'Path matching is a convenience; -PilotFolderId is the reliable form.')
 }
 
 if ($Apply -and [string]::IsNullOrWhiteSpace($tgt)) {

@@ -770,3 +770,29 @@ Describe 'GATE: every shipped script must parse (a broken script was pushed once
         $bad | Should -BeNullOrEmpty
     }
 }
+
+Describe 'Folder addressing: ID is authoritative, path is display only' {
+    BeforeAll { $script:RepairSrc = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'Invoke-MrmRetentionRepair.ps1') -Raw }
+
+    It 'offers -PilotFolderId and documents why the path is not a reliable address' {
+        $RepairSrc | Should -Match '\$PilotFolderId'
+        $RepairSrc | Should -Match 'may itself'          # "a folder NAME may itself contain a slash"
+        $RepairSrc | Should -Match '1297498/500'          # the real folder from this tenant
+    }
+    It 'refuses both switches at once and refuses an ambiguous path match' {
+        $RepairSrc | Should -Match 'not both'
+        $RepairSrc | Should -Match 'ambiguous\. Use -PilotFolderId instead'
+    }
+    It 'keeps the raw 0x66B5 path alongside the normalized one' {
+        $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
+        $src | Should -Match 'FolderPathRaw'
+        $src | Should -Match 'NEVER address a folder by FolderPath'
+    }
+    It 'normalization really is lossy for names containing a slash' {
+        # Proof, not assertion: these two DIFFERENT structures normalize identically.
+        $sep = [string][char]0xFFFE
+        $realSeparator = ConvertTo-MrmFolderPath -RawPath "${sep}Reklamation${sep}1296439"
+        $slashInName   = ConvertTo-MrmFolderPath -RawPath "${sep}Reklamation/1296439"
+        $realSeparator | Should -Be $slashInName    # indistinguishable afterwards
+    }
+}
