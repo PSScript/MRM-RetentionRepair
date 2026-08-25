@@ -1046,7 +1046,12 @@ function Get-MrmItemAudit {
     foreach ($folder in $Folders) {
         $fid = [Microsoft.Exchange.WebServices.Data.FolderId]::new($folder.FolderId)
         $view = [Microsoft.Exchange.WebServices.Data.ItemView]::new($PageSize, 0)
-        $view.PropertySet = $ps
+        # IdOnly ON PURPOSE: if extended properties are requested here, EWS marks
+        # them "loaded but absent" in the property bag and LoadPropertiesForItems
+        # below then skips them - which is exactly why 0x301C stayed empty while
+        # a direct Bind returned it. Search first, load properties second.
+        $view.PropertySet = [Microsoft.Exchange.WebServices.Data.PropertySet]::new(
+            [Microsoft.Exchange.WebServices.Data.BasePropertySet]::IdOnly)
         $collected = 0
         do {
             # Call FindItems DIRECTLY (no retry wrapper) with an inline bounded
@@ -1091,6 +1096,16 @@ function Get-MrmItemAudit {
                     throw ("LoadPropertiesForItems failed for '$($folder.FolderPath)': " +
                            "$($_.Exception.Message). Without it the retention properties " +
                            "would be silently empty - refusing to produce a misleading audit.")
+                }
+                # Sanity: at least the PolicyTag must now be readable. If not, the
+                # load did not actually populate anything and every downstream
+                # count would be wrong.
+                $probe = $null
+                [void]$page.Items[0].TryGetProperty($props.PolicyTag, [ref]$probe)
+                if (-not $probe) {
+                    throw ("LoadPropertiesForItems returned no PolicyTag for the first item in " +
+                           "'$($folder.FolderPath)'. The property load is not working - refusing " +
+                           "to report counts that would be silently empty.")
                 }
             }
             foreach ($item in $page.Items) {

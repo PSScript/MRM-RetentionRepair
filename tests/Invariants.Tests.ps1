@@ -711,3 +711,18 @@ Describe 'Extended properties must be loaded, not hoped for' {
         $audit | Should -Match 'No RetentionDate on ANY item'
     }
 }
+
+Describe 'Search-then-load pattern (EWS property-bag caching)' {
+    It 'searches with IdOnly so LoadPropertiesForItems is not short-circuited' {
+        # Requesting extended props in the ItemView makes EWS mark them
+        # "loaded but absent"; the later batch load then skips them and 0x301C
+        # stays empty forever. Search first, load properties second.
+        $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
+        $src | Should -Match 'IdOnly ON PURPOSE'
+        $src | Should -Match 'loaded but absent'
+    }
+    It 'verifies the batch load actually populated something' {
+        $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
+        $src | Should -Match 'LoadPropertiesForItems returned no PolicyTag'
+    }
+}
