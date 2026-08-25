@@ -505,3 +505,20 @@ Describe 'EWS assembly provisioning (NuGet install, stable location)' {
         $src | Should -Match 'Downloaded assembly looks wrong'
     }
 }
+
+Describe 'Assembly loading is resilient to zone blocks and corrupt copies' {
+    It 'falls back to Assembly.Load(byte[]) which bypasses zone policy' {
+        $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
+        $src | Should -Match '\[System\.Reflection\.Assembly\]::Load\(\$bytes\)'
+        $src | Should -Match 'zone policy bypassed'
+    }
+    It 'tries other locations from the search order before giving up' {
+        $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
+        $src | Should -Match 'Loaded EWS Managed API from alternate location'
+    }
+    It 'ships a .gitattributes marking DLLs binary (CRLF corruption looks like a zone block)' {
+        $ga = Join-Path (Join-Path $PSScriptRoot '..') '.gitattributes'
+        Test-Path $ga | Should -BeTrue
+        (Get-Content $ga -Raw) | Should -Match '\*\.dll\s+binary'
+    }
+}

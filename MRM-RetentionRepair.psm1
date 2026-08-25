@@ -645,7 +645,8 @@ function Install-MrmEwsManagedApi {
 
     $fi = Get-Item $dll
     if ($fi.Length -lt 100kb) { throw "Downloaded assembly looks wrong (size $($fi.Length) bytes): ${dll}" }
-    Write-MrmLog -Level Info -Message "EWS Managed API ${Version} installed: ${dll} ($([Math]::Round($fi.Length/1kb)) KB)"
+    $hash = try { (Get-FileHash -Path $dll -Algorithm MD5).Hash } catch { 'n/a' }
+    Write-MrmLog -Level Info -Message "EWS Managed API ${Version} installed: ${dll} ($([Math]::Round($fi.Length/1kb)) KB, MD5 ${hash})"
     return $dll
 }
 
@@ -663,24 +664,59 @@ function Import-MrmEwsAssembly {
         $Path = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
         if (-not $Path) { $Path = Install-MrmEwsManagedApi }
     }
-    # Zone.Identifier: a DLL downloaded from the internet loads with
-    # HRESULT 0x80131515 (FileLoadException). Unblock proactively.
-    try { if (Get-Command Unblock-File -ErrorAction SilentlyContinue) { Unblock-File -Path $Path -ErrorAction SilentlyContinue } } catch { }
+    $typeName = 'Microsoft.Exchange.WebServices.Data.ExchangeService'
 
+    # Strategy 1: Zone.Identifier - a DLL downloaded from the internet loads
+    # with HRESULT 0x80131515 (FileLoadException). Unblock, then Add-Type.
+    try { if (Get-Command Unblock-File -ErrorAction SilentlyContinue) { Unblock-File -Path $Path -ErrorAction SilentlyContinue } } catch { }
     $addErr = $null
     try { Add-Type -Path $Path -ErrorAction Stop } catch { $addErr = $_ }
 
-    # NEVER claim success without proof: the type must actually resolve.
-    if (-not ('Microsoft.Exchange.WebServices.Data.ExchangeService' -as [type])) {
+    # Strategy 2: load the raw bytes. Assembly.Load(byte[]) does NOT apply the
+    # zone/loadFromRemoteSources policy that makes Add-Type fail with
+    # 0x80131515, so this succeeds even when the mark-of-the-web survives
+    # (locked-down ADS, GPO, extracted-from-ZIP folders, some file servers).
+    if (-not ($typeName -as [type])) {
+        try {
+            $bytes = [System.IO.File]::ReadAllBytes($Path)
+            [System.Reflection.Assembly]::Load($bytes) | Out-Null
+            if ($typeName -as [type]) {
+                Write-MrmLog -Level Warning -Message "Add-Type was blocked for ${Path}; loaded the assembly from raw bytes instead (zone policy bypassed)."
+            }
+        } catch { }
+    }
+
+    # Strategy 3: another copy elsewhere in the search order (e.g. the
+    # non-repo install location) may be intact.
+    if (-not ($typeName -as [type])) {
+        foreach ($alt in ((Get-MrmEwsInstallPath).SearchOrder | Where-Object { $_ -ne $Path -and (Test-Path $_) })) {
+            try {
+                [System.Reflection.Assembly]::Load([System.IO.File]::ReadAllBytes($alt)) | Out-Null
+                if ($typeName -as [type]) {
+                    Write-MrmLog -Level Warning -Message "Loaded EWS Managed API from alternate location: ${alt}"
+                    $Path = $alt
+                    break
+                }
+            } catch { }
+        }
+    }
+
+    if (-not ($typeName -as [type])) {
+        $len = try { (Get-Item $Path).Length } catch { 0 }
         $hint = @(
             "EWS Managed API could not be loaded from: ${Path}",
-            "The type Microsoft.Exchange.WebServices.Data.ExchangeService is not available.",
-            "Most common cause on Windows: the DLL is marked as downloaded from the",
-            "internet (Zone.Identifier) and .NET refuses to load it (HRESULT 0x80131515).",
-            "Fix:",
-            "    Get-ChildItem '$(Split-Path $Path -Parent)\*.dll' | Unblock-File",
-            "Then re-run. If it still fails, check that the file is not 0 bytes and",
-            "that the process architecture can load it."
+            "Size on disk: ${len} bytes (expected ~1130264 for 2.2.0)",
+            "Add-Type AND raw-byte loading both failed, so this is most likely a",
+            "corrupted/incomplete file rather than a zone block.",
+            "Diagnose:",
+            "    (Get-FileHash '${Path}' -Algorithm MD5).Hash   # expect 98CB0EF1ECBB683D0DA19A17B5739F25",
+            "    Get-Item '${Path}' -Stream * | Select-Object Stream",
+            "Fix - force a clean copy outside the repo:",
+            "    Import-Module .\MRM-RetentionRepair.psm1 -Force",
+            "    Install-MrmEwsManagedApi -Force",
+            "If the hash differs from the expected value, git mangled the binary on",
+            "checkout (missing .gitattributes / core.autocrlf); re-run the installer",
+            "and delete the repo-local copy."
         ) -join [Environment]::NewLine
         if ($addErr) { $hint += [Environment]::NewLine + "Inner error: $($addErr.Exception.Message)" }
         throw $hint

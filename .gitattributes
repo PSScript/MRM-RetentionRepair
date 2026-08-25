@@ -1,0 +1,12 @@
+# Binaries must never be line-ending-normalized on checkout. Without this a
+# Windows client with core.autocrlf=true can corrupt a DLL, which then fails to
+# load with HRESULT 0x80131515 - looking exactly like a zone block.
+*.dll binary
+*.exe binary
+*.nupkg binary
+*.png binary
+# Scripts keep CRLF on Windows; the UTF-8 BOM requirement is enforced by tests.
+*.ps1  text eol=crlf
+*.psm1 text eol=crlf
+*.md   text
+*.json text

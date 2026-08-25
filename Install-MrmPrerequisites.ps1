@@ -57,6 +57,9 @@ if ($WhatIfPathsOnly) {
     return
 }
 
+if ($Force) {
+    Write-Host 'Force: downloading a fresh copy (an existing local copy is NOT reused).' -ForegroundColor Yellow
+}
 $splat = @{ Version = $Version; Force = $Force }
 if ($Destination) { $splat.Destination = $Destination }
 $dll = Install-MrmEwsManagedApi @splat
@@ -79,5 +82,13 @@ Write-Host ''
 Write-Host "[ok] EWS Managed API ${Version} ready: ${dll}" -ForegroundColor Green
 Write-Host "[ok] all required types resolve" -ForegroundColor Green
 Write-Host ("[{0}] FolderSchema::PolicyTag available (required for the untag operation)" -f $(if ($hasPolicyTag) { 'ok' } else { '!!' })) -ForegroundColor $(if ($hasPolicyTag) { 'Green' } else { 'Red' })
+Write-Host ''
+$fh = try { (Get-FileHash -Path $dll -Algorithm MD5).Hash } catch { 'n/a' }
+Write-Host ("[ok] MD5 {0} (2.2.0 reference: 98CB0EF1ECBB683D0DA19A17B5739F25)" -f $fh) -ForegroundColor Green
+if ($dll -notlike "*$($paths.RepoDir)*" -and (Test-Path (Join-Path $paths.RepoDir 'Microsoft.Exchange.WebServices.dll'))) {
+    Write-Host ''
+    Write-Host 'A repo-local copy also exists. It is only a fallback and can be removed:' -ForegroundColor Yellow
+    Write-Host ("    Remove-Item '{0}\Microsoft.Exchange.WebServices.dll'" -f $paths.RepoDir) -ForegroundColor Yellow
+}
 Write-Host ''
 Write-Host 'Next: ./Manage-MrmConfig.ps1 -Action Test -ConfigPath ./configs/<name>.json' -ForegroundColor Cyan
