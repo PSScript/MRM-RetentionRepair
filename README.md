@@ -139,6 +139,17 @@ Lernkurve, Erfahrungen sammeln vor der Breite):
    und vergleicht (Verified). Unerwarteter Nachzustand stoppt das Postfach.
    Pro Postfach liegen Pre-/Post-Zensus + Backups unter evidence/tenant-repair/<mbx>/.
 
+Stolperstein Windows
+--------------------
+Laedt die EWS-DLL nicht (`FileLoadException`, HRESULT 0x80131515), ist sie als
+"aus dem Internet" markiert:
+
+       Get-ChildItem .\lib\*.dll | Unblock-File
+
+Das Tool entsperrt inzwischen selbst und prueft, ob der Typ wirklich aufloest --
+es meldet keinen Erfolg mehr, wenn die Assembly fehlt, und ein Zensus mit
+0 Ordnern gilt als Fehler, nicht als sauberes Postfach.
+
 Leitplanken
 -----------
 - Schreibzugriff nur, wenn die aktuell gelesene physische RetentionId EXAKT dem

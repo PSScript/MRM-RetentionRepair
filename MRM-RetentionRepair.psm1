@@ -25,6 +25,7 @@
 #>
 
 Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 
 # ============================================================================
 # Constants
@@ -563,8 +564,29 @@ function Import-MrmEwsAssembly {
         $Path = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
         if (-not $Path) { $Path = Install-MrmEwsManagedApi }
     }
-    Add-Type -Path $Path
-    Write-MrmLog -Level Info -Message "Loaded EWS Managed API from ${Path}"
+    # Zone.Identifier: a DLL downloaded from the internet loads with
+    # HRESULT 0x80131515 (FileLoadException). Unblock proactively.
+    try { if (Get-Command Unblock-File -ErrorAction SilentlyContinue) { Unblock-File -Path $Path -ErrorAction SilentlyContinue } } catch { }
+
+    $addErr = $null
+    try { Add-Type -Path $Path -ErrorAction Stop } catch { $addErr = $_ }
+
+    # NEVER claim success without proof: the type must actually resolve.
+    if (-not ('Microsoft.Exchange.WebServices.Data.ExchangeService' -as [type])) {
+        $hint = @(
+            "EWS Managed API could not be loaded from: ${Path}",
+            "The type Microsoft.Exchange.WebServices.Data.ExchangeService is not available.",
+            "Most common cause on Windows: the DLL is marked as downloaded from the",
+            "internet (Zone.Identifier) and .NET refuses to load it (HRESULT 0x80131515).",
+            "Fix:",
+            "    Get-ChildItem '$(Split-Path $Path -Parent)\*.dll' | Unblock-File",
+            "Then re-run. If it still fails, check that the file is not 0 bytes and",
+            "that the process architecture can load it."
+        ) -join [Environment]::NewLine
+        if ($addErr) { $hint += [Environment]::NewLine + "Inner error: $($addErr.Exception.Message)" }
+        throw $hint
+    }
+    Write-MrmLog -Level Info -Message "Loaded EWS Managed API from ${Path} (type resolved)."
 }
 
 function Connect-MrmEwsService {
@@ -583,6 +605,9 @@ function Connect-MrmEwsService {
         [Microsoft.Exchange.WebServices.Data.ConnectingIdType]::SmtpAddress, $Mailbox)
     $service.HttpHeaders.Add('X-AnchorMailbox', $Mailbox)
     $service.UserAgent = 'MRM-RetentionRepair/1.0'
+    if ($null -eq $service -or $null -eq $service.Url) {
+        throw "EWS service object could not be constructed for ${Mailbox} - refusing to continue with a null service."
+    }
     return $service
 }
 

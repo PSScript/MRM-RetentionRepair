@@ -94,6 +94,20 @@ Get-MailboxFolderStatistics <mbx> -IncludeAnalysis |
 ./Invoke-MrmGraphParity.ps1 ... -ExperimentalWriteProbe -ProbeGraphFolderId <id> -IUnderstandThisIsAnExperiment
 ```
 
+## 4b. Troubleshooting: EWS assembly will not load
+
+`Add-Type` fails with `FileLoadException` / HRESULT **0x80131515** and every
+`Microsoft.Exchange.WebServices.Data.*` type is then "not found":
+
+```powershell
+Get-ChildItem .\lib\*.dll | Unblock-File
+```
+
+The DLL carries a `Zone.Identifier` alternate data stream (marked as downloaded
+from the internet) and .NET refuses to load it. The tool now unblocks
+proactively and verifies the type actually resolves before reporting success --
+it will no longer continue with a null service.
+
 ## 5. Restore-before-MFA operational ordering
 
 ```

@@ -464,3 +464,20 @@ Describe 'Encoding: every shipped script must be BOM-marked UTF-8 (PS 5.1)' {
         $bad | Should -BeNullOrEmpty -Because 'a mojibaked quote inside a string literal breaks parsing on 5.1'
     }
 }
+
+Describe 'Never report an all-clear on a broken run' {
+    It 'Import-MrmEwsAssembly throws with an actionable Unblock-File hint when the type does not resolve' {
+        $fake = Join-Path ([IO.Path]::GetTempPath()) "not-an-assembly-$([guid]::NewGuid()).dll"
+        Set-Content -LiteralPath $fake -Value 'this is not a PE file' -Encoding ascii
+        # only meaningful when the real type is absent from this session
+        if (-not ('Microsoft.Exchange.WebServices.Data.ExchangeService' -as [type])) {
+            { Import-MrmEwsAssembly -Path $fake } | Should -Throw '*Unblock-File*'
+        }
+        Remove-Item $fake -Force -ErrorAction SilentlyContinue
+    }
+    It 'the audit script refuses to treat a zero-folder census as a clean mailbox' {
+        $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'Invoke-MrmRetentionAudit.ps1') -Raw
+        $src | Should -Match 'Census returned 0 folders'
+        $src | Should -Match 'Refusing to report an all-clear'
+    }
+}

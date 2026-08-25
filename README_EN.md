@@ -81,6 +81,13 @@ mailbox mode 1 = one user / comma-separated / array (`-Mailbox 'a@c.com,b@c.com'
 Stages: DryRun (default, zero writes) -> `-TestRun` (writes, capped to 1 mailbox x 1 folder by default) -> `-Apply` (full). `-TestRun` and `-Apply` are mutually exclusive.
 Per-mailbox safety net under `evidence/tenant-repair/logging/<mbx>/`: a complete tag-state backup (`backup-tagstate-*.json`, schema `mrm-tagstate-backup/1`) is written AND read back before any write — fail-closed: no verified backup, no writes in that mailbox. Every mutation additionally runs READ -> BACKUP (JSONL) -> SET (native PolicyTag=null) -> READ -> COMPARE (Verified); an unexpected post-write state stops that mailbox. Pre/post censuses + backups per mailbox under evidence/tenant-repair/<mbx>/.
 
+Windows gotcha
+--------------
+If the EWS DLL fails to load (`FileLoadException`, HRESULT 0x80131515) it is
+zone-blocked: `Get-ChildItem .\lib\*.dll | Unblock-File`. The tool now
+unblocks proactively, verifies the type resolves before claiming success, and
+treats a zero-folder census as a failure rather than a clean mailbox.
+
 Run tests:  pwsh -c "Invoke-Pester -Path ./tests"
 Start here: docs/RUNBOOK.md
 References: PSScript/tokenhandler (throttling/token patterns),

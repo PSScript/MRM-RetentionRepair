@@ -87,7 +87,14 @@ $service = Connect-MrmEwsService -Mailbox $Mailbox -AccessToken $token
 Write-MrmLog -LogPath $log -Level Info -Message "Gate 1 passed: EWS OAuth connection prepared for ${Mailbox} (explicit endpoint, no Autodiscover)."
 
 # --- Phase 1A census ---------------------------------------------------------
-$census = Get-MrmFolderCensus -Service $service
+$census = @(Get-MrmFolderCensus -Service $service)
+# A census of zero folders means the connection failed, not that the mailbox is
+# clean. Never let a broken run look like an all-clear.
+if ($census.Count -eq 0) {
+    throw ("Census returned 0 folders for ${Mailbox}. That is not a clean mailbox - " +
+           "it means the EWS call did not succeed (auth, impersonation/ApplicationAccessPolicy, " +
+           "or assembly load). Refusing to report an all-clear.")
+}
 $snap = Export-MrmEvidence -Records $census -OutputDirectory $OutputDirectory -BaseName 'folder-census'
 Write-MrmLog -LogPath $log -Level Info -Message "Gate 2 passed: physical-tag census complete ($($census.Count) folders). Evidence: $($snap -join ', ')"
 
