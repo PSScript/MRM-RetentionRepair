@@ -865,7 +865,9 @@ Describe 'Audit run comparison' {
         $errs | Should -BeNullOrEmpty
     }
     It 'reports one repaired folder and one still tagged' {
-        $out = & $CmpScript -EvidenceDirectory $Ev -Kind Folders 2>&1 | Out-String
+        # NB: Write-Host writes to the INFORMATION stream (6), not to output or
+        # error - 2>&1 captures nothing. Redirect 6 to capture host output.
+        $out = & $CmpScript -EvidenceDirectory $Ev -Kind Folders 6>&1 | Out-String
         $out | Should -Match 'LOST the tag \(repaired\) : 1'
         $out | Should -Match 'still tagged            : 1'
     }
