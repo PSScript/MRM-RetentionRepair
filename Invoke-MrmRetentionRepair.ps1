@@ -166,6 +166,27 @@ if ($Apply -and [string]::IsNullOrWhiteSpace($tgt)) {
 }
 $candidates = @($scope | Where-Object { $_.HasPhysicalPolicyTag -and $_.PolicyTagRetentionId -eq $tgt })
 
+# Scope has folders but none matched? Then say WHY, field by field. A bare
+# "Matched: 0" sends the operator hunting through CSVs for no reason.
+if ($candidates.Count -eq 0 -and @($scope).Count -gt 0) {
+    Write-Host ''
+    Write-Host ' WHY NOTHING MATCHED - live values from the fresh census:' -ForegroundColor Yellow
+    foreach ($z in (@($scope) | Select-Object -First 10)) {
+        Write-Host ("   {0}" -f $z.FolderPath)
+        Write-Host ("     HasPhysicalPolicyTag : {0}" -f $z.HasPhysicalPolicyTag)
+        Write-Host ("     PolicyTagRetentionId : '{0}'" -f $z.PolicyTagRetentionId)
+        Write-Host ("     PolicyTagFirstClass  : '{0}'" -f $z.PolicyTagFirstClass)
+        Write-Host ("     target               : '{0}'" -f $tgt)
+        Write-Host ("     equal?               : {0}" -f ($z.PolicyTagRetentionId -eq $tgt))
+        Write-Host ("     RetentionPeriod/Flags: {0} / {1} ({2})" -f $z.RetentionPeriod, $z.RetentionFlagsRaw, $z.RetentionFlagsDecoded)
+        Write-Host ("     ExistsFilterHit      : {0}" -f $z.ExistsFilterHit)
+    }
+    Write-Host ''
+    Write-Host ' If PolicyTagRetentionId is empty here but filled in an older census CSV,' -ForegroundColor Yellow
+    Write-Host ' the folder was untagged in the meantime - or the census is not reading the' -ForegroundColor Yellow
+    Write-Host ' property any more. Compare against the newest pre-repair-census-*.csv.'     -ForegroundColor Yellow
+}
+
 # An APPLY run that matches nothing is almost always a wrong target or a wrong
 # pilot path - say so instead of printing a reassuring "0 folders".
 if ($Apply -and $candidates.Count -eq 0) {
