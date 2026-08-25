@@ -838,3 +838,43 @@ Describe 'Staged apply: verify phase, error budget, no vacuous success' {
         $src | Should -Match 'the authoritative address'
     }
 }
+
+Describe 'Audit run comparison' {
+    BeforeAll {
+        $script:CmpScript = Join-Path (Join-Path $PSScriptRoot '..') 'Compare-MrmAuditRun.ps1'
+        $script:Ev = Join-Path ([IO.Path]::GetTempPath()) "mrmcmp-$([guid]::NewGuid())"
+        New-Item -ItemType Directory -Force -Path $Ev | Out-Null
+        $T = 'd94993b5-e987-4275-8707-072057cfb2b8'
+        @"
+"FolderPath","FolderId","PolicyTagRetentionId"
+"/A/one","f1","$T"
+"/A/two","f2","$T"
+"@ | Set-Content (Join-Path $Ev 'folder-census-1.csv') -Encoding utf8
+        Start-Sleep -Milliseconds 1100
+        @"
+"FolderPath","FolderId","PolicyTagRetentionId"
+"/A/one","f1",""
+"/A/two","f2","$T"
+"@ | Set-Content (Join-Path $Ev 'folder-census-2.csv') -Encoding utf8
+    }
+    AfterAll { Remove-Item $script:Ev -Recurse -Force -ErrorAction SilentlyContinue }
+
+    It 'parses' {
+        $errs = $null
+        [System.Management.Automation.Language.Parser]::ParseFile($CmpScript, [ref]$null, [ref]$errs) | Out-Null
+        $errs | Should -BeNullOrEmpty
+    }
+    It 'reports one repaired folder and one still tagged' {
+        $out = & $CmpScript -EvidenceDirectory $Ev -Kind Folders 2>&1 | Out-String
+        $out | Should -Match 'LOST the tag \(repaired\) : 1'
+        $out | Should -Match 'still tagged            : 1'
+    }
+    It 'matches by ID, never by path' {
+        $src = Get-Content $CmpScript -Raw
+        $src | Should -Match 'Matching is by ID \(FolderId / ItemId\), never by path'
+        $src | Should -Match '\$b\[\$x\.\$KeyProperty\] = \$x'
+    }
+    It 'flags vanished entries as deletions for items' {
+        (Get-Content $CmpScript -Raw) | Should -Match 'For ITEMS this means deleted'
+    }
+}

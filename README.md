@@ -201,6 +201,18 @@ Das Tool entsperrt selbst und prueft die Typaufloesung: es meldet keinen Erfolg
 mehr, wenn die Assembly fehlt, und ein Zensus mit 0 Ordnern gilt als Fehler,
 nicht als sauberes Postfach.
 
+Zwei Laeufe vergleichen
+-----------------------
+Statt 20.000 CSV-Zeilen von Hand zu vergleichen:
+
+       .\Compare-MrmAuditRun.ps1 -EvidenceDirectory .\evidence
+       .\Compare-MrmAuditRun.ps1 -EvidenceDirectory .\evidence -Kind Items -ExportDelta
+
+Nimmt automatisch die zwei neuesten Laeufe je Sorte und meldet vier Kategorien:
+Tag VERLOREN (repariert), noch getaggt, Tag NEU BEKOMMEN (jemand hat ihn wieder
+vergeben) und VERSCHWUNDEN (bei Items = geloescht). Abgleich immer ueber
+FolderId/ItemId, nie ueber Pfad oder Betreff.
+
 Leitplanken
 -----------
 - Schreibzugriff nur, wenn die aktuell gelesene physische RetentionId EXAKT dem
