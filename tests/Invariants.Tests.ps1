@@ -672,3 +672,24 @@ Describe 'Self-updater' {
         $errs | Should -BeNullOrEmpty
     }
 }
+
+Describe 'Item property fidelity and RetentionDate' {
+    It 'defines PidTagRetentionDate 0x301C as SystemTime' {
+        $p = Get-MrmEwsPropertyDefinitions
+        $p.RetentionDate.Tag      | Should -Be 0x301C
+        $p.RetentionDate.MapiType | Should -Be 'SystemTime'
+    }
+    It 'never concludes from a missing property without a Bind cross-check' {
+        # Live run: items showed PolicyTag but empty period/flags. That is only
+        # meaningful if a direct Bind confirms the absence.
+        $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
+        $src | Should -Match 'function Test-MrmItemPropertyFidelity'
+        $src | Should -Match 'FindItems does not guarantee'
+        $audit = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'Invoke-MrmRetentionAudit.ps1') -Raw
+        $audit | Should -Match 'FindItems did NOT return all properties'
+    }
+    It 'the item audit requests RetentionDate alongside tag, period and flags' {
+        $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
+        $src | Should -Match '\$ps\.Add\(\$props\.RetentionFlags\); \$ps\.Add\(\$props\.RetentionDate\)'
+    }
+}

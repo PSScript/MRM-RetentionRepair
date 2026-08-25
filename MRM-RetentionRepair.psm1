@@ -41,6 +41,7 @@ $script:MrmPropTags = [ordered]@{
     PR_POLICY_TAG        = 0x3019   # Binary  - PidTagPolicyTag (delete tag GUID)
     PR_RETENTION_PERIOD  = 0x301A   # Integer - PidTagRetentionPeriod (days)
     PR_RETENTION_FLAGS   = 0x301D   # Integer - PidTagRetentionFlags
+    PR_RETENTION_DATE    = 0x301C   # SystemTime - PidTagRetentionDate (computed expiry)
     PR_ARCHIVE_TAG       = 0x3018   # Binary  - PidTagArchiveTag (read-only here)
     PR_FOLDER_PATH       = 0x66B5   # String  - folder path, U+FFFE separators
 }
@@ -831,7 +832,9 @@ function Get-MrmEwsPropertyDefinitions {
     $B = [Microsoft.Exchange.WebServices.Data.MapiPropertyType]::Binary
     $I = [Microsoft.Exchange.WebServices.Data.MapiPropertyType]::Integer
     $S = [Microsoft.Exchange.WebServices.Data.MapiPropertyType]::String
+    $T = [Microsoft.Exchange.WebServices.Data.MapiPropertyType]::SystemTime
     return @{
+        RetentionDate   = [Microsoft.Exchange.WebServices.Data.ExtendedPropertyDefinition]::new(0x301C, $T)
         PolicyTag       = [Microsoft.Exchange.WebServices.Data.ExtendedPropertyDefinition]::new(0x3019, $B)
         RetentionPeriod = [Microsoft.Exchange.WebServices.Data.ExtendedPropertyDefinition]::new(0x301A, $I)
         RetentionFlags  = [Microsoft.Exchange.WebServices.Data.ExtendedPropertyDefinition]::new(0x301D, $I)
@@ -1079,10 +1082,11 @@ function Get-MrmItemAudit {
                        "($($page.GetType().FullName)) for '$($folder.FolderPath)'.")
             }
             foreach ($item in $page.Items) {
-                $raw = $null; $per = $null; $flg = $null
+                $raw = $null; $per = $null; $flg = $null; $rdate = $null
                 [void]$item.TryGetProperty($props.PolicyTag,       [ref]$raw)
                 [void]$item.TryGetProperty($props.RetentionPeriod, [ref]$per)
                 [void]$item.TryGetProperty($props.RetentionFlags,  [ref]$flg)
+                [void]$item.TryGetProperty($props.RetentionDate,   [ref]$rdate)
                 $results.Add([pscustomobject]@{
                     FolderPath            = $folder.FolderPath
                     ItemId                = $item.Id.UniqueId
@@ -1091,6 +1095,7 @@ function Get-MrmItemAudit {
                     RetentionFlagsRaw     = $flg
                     RetentionFlagsDecoded = ConvertFrom-MrmRetentionFlags -Flags $flg
                     RetentionPeriod       = $per
+                    RetentionDate         = $rdate        # 0x301C - when MFA would delete it
                     DateTimeReceived      = $item.DateTimeReceived
                     DateTimeCreated       = $item.DateTimeCreated
                 })
@@ -1103,6 +1108,50 @@ function Get-MrmItemAudit {
         Write-MrmLog -Level Info -Message "Item audit '$($folder.FolderPath)': physically tagged items sampled=${collected} (cap ${MaxItemsPerFolder}), folder claims TotalCount=$($folder.ItemCount)"
     }
     return $results
+}
+
+function Test-MrmItemPropertyFidelity {
+    <# FindItems does not guarantee that every requested extended property is
+       returned. This binds a few items individually and compares - so a missing
+       0x301A/0x301D is reported as EITHER "genuinely absent" OR "FindItems did
+       not return it", instead of being silently interpreted. READ-ONLY. #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Service,
+        [Parameter(Mandatory)][object[]]$Items,      # audit records
+        [int]$SampleSize = 5
+    )
+    Import-MrmEwsAssembly
+    $props = Get-MrmEwsPropertyDefinitions
+    $ps = [Microsoft.Exchange.WebServices.Data.PropertySet]::new(
+        [Microsoft.Exchange.WebServices.Data.BasePropertySet]::IdOnly)
+    $ps.Add($props.PolicyTag);      $ps.Add($props.RetentionPeriod)
+    $ps.Add($props.RetentionFlags); $ps.Add($props.RetentionDate)
+
+    $out = [System.Collections.Generic.List[object]]::new()
+    foreach ($rec in (@($Items) | Select-Object -First $SampleSize)) {
+        $iid = [Microsoft.Exchange.WebServices.Data.ItemId]::new($rec.ItemId)
+        $it  = [Microsoft.Exchange.WebServices.Data.Item]::Bind($Service, $iid, $ps)
+        $tag = $null; $per = $null; $flg = $null; $rd = $null
+        [void]$it.TryGetProperty($props.PolicyTag,       [ref]$tag)
+        [void]$it.TryGetProperty($props.RetentionPeriod, [ref]$per)
+        [void]$it.TryGetProperty($props.RetentionFlags,  [ref]$flg)
+        [void]$it.TryGetProperty($props.RetentionDate,   [ref]$rd)
+        $out.Add([pscustomobject]@{
+            FolderPath         = $rec.FolderPath
+            FindItems_Policy   = $rec.PolicyTagRetentionId
+            Bind_Policy        = $(if ($tag) { ConvertFrom-MrmPolicyTagBytes -Bytes $tag } else { $null })
+            FindItems_Period   = $rec.RetentionPeriod
+            Bind_Period        = $per
+            FindItems_FlagsRaw = $rec.RetentionFlagsRaw
+            Bind_FlagsRaw      = $flg
+            Bind_FlagsDecoded  = ConvertFrom-MrmRetentionFlags -Flags $flg
+            Bind_RetentionDate = $rd
+            PropsAgree         = (($rec.RetentionPeriod   -as [string]) -eq ($per -as [string])) -and
+                                 (($rec.RetentionFlagsRaw -as [string]) -eq ($flg -as [string]))
+        })
+    }
+    return $out
 }
 
 function Invoke-MrmEwsWithRetry {
@@ -1594,7 +1643,7 @@ Export-ModuleMember -Function @(
     'New-MrmClientAssertion','Get-MrmAccessToken',
     'Install-MrmEwsManagedApi','Get-MrmEwsInstallPath','Import-MrmEwsAssembly','Connect-MrmEwsService',
     'Get-MrmEwsPropertyDefinitions','Get-MrmFolderCensus','ConvertTo-MrmCensusRecord',
-    'Get-MrmCensusSummary','Get-MrmItemAudit','Invoke-MrmEwsWithRetry',
+    'Get-MrmCensusSummary','Get-MrmItemAudit','Test-MrmItemPropertyFidelity','Invoke-MrmEwsWithRetry',
     'Get-MrmFolderRawState','Invoke-MrmFolderUntag','Export-MrmEvidence',
     'Invoke-MrmGraphRequest','Invoke-MrmGraphCall','Protect-MrmSecretString','Unprotect-MrmSecretString','Get-MrmConfig','Resolve-MrmEffectiveSetting','ConvertTo-MrmSafeFileName','Get-MrmGraphMailboxList','Get-MrmTenantTagRollup','Split-MrmMailboxList','Export-MrmTagStateBackup','Test-MrmTagStateBackup','Get-MrmGraphFolderCensus','ConvertTo-MrmGraphCensusRecord',
     'Compare-MrmCensusParity','Get-MrmGraphItemAudit','Invoke-MrmGraphWriteProbe'

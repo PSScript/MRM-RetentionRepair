@@ -151,6 +151,36 @@ if ($IncludeItemAudit) {
     }
     if ($items) { Export-MrmEvidence -Records $items -OutputDirectory $OutputDirectory -BaseName 'item-audit' | Out-Null }
 
+    # FindItems is not guaranteed to return every requested extended property.
+    # Bind a small sample and compare before drawing ANY conclusion from a
+    # missing 0x301A/0x301D.
+    $fidelity = @()
+    try { $fidelity = @(Test-MrmItemPropertyFidelity -Service $service -Items $items -SampleSize 5) }
+    catch { Write-MrmLog -LogPath $log -Level Warning -Message "Property fidelity check failed: $($_.Exception.Message)" }
+    if ($fidelity) {
+        Write-Host ''
+        Write-Host ' Property fidelity (FindItems vs. direct Bind, 5 sampled items):'
+        $fidelity | Format-Table FolderPath, Bind_Policy, FindItems_Period, Bind_Period,
+                                 FindItems_FlagsRaw, Bind_FlagsRaw, Bind_FlagsDecoded,
+                                 Bind_RetentionDate, PropsAgree -AutoSize |
+            Out-String -Width 220 | Write-Host
+        $disagree = @($fidelity | Where-Object { -not $_.PropsAgree })
+        if ($disagree.Count -gt 0) {
+            Write-Host '   => FindItems did NOT return all properties. The item-audit CSV understates' -ForegroundColor Yellow
+            Write-Host '      flags/period; trust the Bind column above.' -ForegroundColor Yellow
+        } else {
+            Write-Host '   => Bind confirms FindItems: the values really are what the CSV shows.' -ForegroundColor Green
+        }
+        $rd = @($fidelity | Where-Object { $_.Bind_RetentionDate })
+        if ($rd) {
+            Write-Host ''
+            Write-Host ' PidTagRetentionDate (0x301C) = the date MFA would delete the item:'
+            $rd | ForEach-Object { Write-Host ("   {0}  {1}" -f $_.Bind_RetentionDate, $_.FolderPath) }
+        } else {
+            Write-Host '   No RetentionDate (0x301C) on the sampled items.' -ForegroundColor Yellow
+        }
+    }
+
     $itemTarget = @($items | Where-Object { $_.PolicyTagRetentionId -eq $tgt })
     $dist = $items | Group-Object PolicyTagRetentionId | Sort-Object Count -Descending |
             Select-Object @{n='RetentionId';e={$_.Name}}, Count
