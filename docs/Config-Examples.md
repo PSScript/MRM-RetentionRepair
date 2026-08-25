@@ -1,5 +1,11 @@
 # Beispiel-Konfigurationen / Example configuration files
 
+**Zum Editieren:** die Vorlage `configs/TENANT-EXAMPLE.template.json` im Repo
+kopieren (`configs/<NAME>.json`), Werte eintragen, dann
+`./Manage-MrmConfig.ps1 -Action Encrypt -ConfigPath ./configs/<NAME>.json` —
+das fragt das Client Secret verdeckt ab und ergänzt `ClientSecretEncrypted`.
+Eigene `configs/*.json` sind gitignored, nur `*.template.json` ist versioniert.
+
 Eine JSON-Datei pro Tenant/Run (Muster: `PSScript/Resend-GraphReplay`).
 Secrets liegen **nie im Klartext** auf der Platte: `*Encrypted`-Felder sind
 `ConvertFrom-SecureString`-Blobs — unter Windows DPAPI, d. h. **gebunden an

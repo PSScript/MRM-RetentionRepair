@@ -57,7 +57,11 @@ Anleitung (Quickstart)
        ./Manage-MrmConfig.ps1 -Action Test   -ConfigPath ./configs/TENANT-A.json   # Pflichtfelder + EWS/Graph-Token
        ./Manage-MrmConfig.ps1 -Action Show   -ConfigPath ./configs/TENANT-A.json   # Secrets maskiert
 
-   Beispiel-JSONs mit Dummy-Daten: [docs/Config-Examples.md](docs/Config-Examples.md).
+   Zum Selber-Editieren liegt eine Vorlage im Repo:
+   [`configs/TENANT-EXAMPLE.template.json`](configs/TENANT-EXAMPLE.template.json)
+   — kopieren nach `configs/<NAME>.json`, Werte eintragen, dann
+   `-Action Encrypt` für das Secret. Weitere Beispiele:
+   [docs/Config-Examples.md](docs/Config-Examples.md).
    CLI-Parameter überschreiben Config-Werte, Config überschreibt Defaults.
 
 2. **Gate 1–4 — Read-only-Audit** (Zensus + Falsifier + Item-Audit):

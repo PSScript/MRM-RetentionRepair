@@ -1,3 +1,8 @@
 evidence/
 *.log
-configs/
+# real run configs stay local (they contain tenant ids + DPAPI secret blobs);
+# only the editable template is versioned. NB: "configs/" would ignore the
+# whole directory and git would never descend into it, so the negation below
+# would never fire — "configs/*" is required.
+configs/*
+!configs/*.template.json

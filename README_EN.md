@@ -56,7 +56,11 @@ Usage (quickstart)
        ./Manage-MrmConfig.ps1 -Action Test   -ConfigPath ./configs/TENANT-A.json   # required fields + EWS/Graph tokens
        ./Manage-MrmConfig.ps1 -Action Show   -ConfigPath ./configs/TENANT-A.json   # secrets masked
 
-   Example JSONs with dummy data: [docs/Config-Examples.md](docs/Config-Examples.md).
+   An editable template ships in the repo:
+   [`configs/TENANT-EXAMPLE.template.json`](configs/TENANT-EXAMPLE.template.json)
+   — copy it to `configs/<NAME>.json`, fill in the values, then run
+   `-Action Encrypt` for the secret. More examples:
+   [docs/Config-Examples.md](docs/Config-Examples.md).
    CLI parameters override config values; config overrides script defaults.
 
 2. **Gates 1-4 — read-only audit**:   `./Invoke-MrmRetentionAudit.ps1 -ConfigPath ./configs/TENANT-A.json -IncludeItemAudit`

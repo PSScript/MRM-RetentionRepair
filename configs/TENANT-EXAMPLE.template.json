@@ -1,0 +1,22 @@
+{
+    "_README": "Copy this file to configs/<YOURNAME>.json, fill in the values below, then run: ./Manage-MrmConfig.ps1 -Action Encrypt -ConfigPath ./configs/<YOURNAME>.json  (it will prompt for the client secret, hidden, and add ClientSecretEncrypted). Never put a real secret in this template.",
+
+    "TenantId": "00000000-0000-0000-0000-000000000000",
+    "ClientId": "00000000-0000-0000-0000-000000000000",
+
+    "_auth": "Pick ONE. Certificate is preferred. For a client secret leave the two certificate fields out entirely and let -Action Encrypt add ClientSecretEncrypted.",
+    "CertificateThumbprint": "",
+    "CertificateStore": "Cert:\\CurrentUser\\My",
+
+    "Mailbox": "user@contoso.com",
+    "TargetRetentionId": "d94993b5-e987-4275-8707-072057cfb2b8",
+
+    "_optional": "Remove any line you do not need.",
+    "KnownEffectiveCount": 0,
+    "MailboxCsv": "",
+    "ThrottleDelayMs": 500,
+    "OutputDirectory": "",
+
+    "Description": "describe this run",
+    "CreatedBy": "your-name"
+}
