@@ -666,70 +666,82 @@ function Import-MrmEwsAssembly {
     param([string]$Path)
     if ('Microsoft.Exchange.WebServices.Data.ExchangeService' -as [type]) { return }
     if (-not $Path) {
-        $candidates = @(
-            (Join-Path $PSScriptRoot 'lib/Microsoft.Exchange.WebServices.dll'),
-            'C:\Program Files\Microsoft\Exchange\Web Services\2.2\Microsoft.Exchange.WebServices.dll',
-            'C:\Program Files (x86)\Microsoft\Exchange\Web Services\2.2\Microsoft.Exchange.WebServices.dll'
-        )
-        $Path = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-        if (-not $Path) { $Path = Install-MrmEwsManagedApi }
+        # Single source of truth for the search order (MSI > ProgramData >
+        # LocalAppData > repo lib). A stale hardcoded list here previously put
+        # the repo copy FIRST, which shadowed a freshly installed clean copy.
+        $Path = (Get-MrmEwsInstallPath).SearchOrder | Where-Object { Test-Path $_ } | Select-Object -First 1
+        if (-not $Path) {
+            Write-MrmLog -Level Info -Message 'EWS Managed API not found locally - installing from nuget.org ...'
+            $Path = Install-MrmEwsManagedApi
+        }
     }
     $typeName = 'Microsoft.Exchange.WebServices.Data.ExchangeService'
 
-    # Strategy 1: Zone.Identifier - a DLL downloaded from the internet loads
-    # with HRESULT 0x80131515 (FileLoadException). Unblock, then Add-Type.
-    try { if (Get-Command Unblock-File -ErrorAction SilentlyContinue) { Unblock-File -Path $Path -ErrorAction SilentlyContinue } } catch { }
-    $addErr = $null
-    try { Add-Type -Path $Path -ErrorAction Stop } catch { $addErr = $_ }
+    # The EWS Managed API MUST be loaded as a FILE. Its ExchangeServiceBase
+    # static constructor reads Assembly.Location, so an assembly loaded from a
+    # byte[] (Location = "") throws TypeInitializationException on the first
+    # ExchangeService ctor. Byte-loading "works" for Add-Type and then breaks
+    # at the first real call - so we never do it.
+    $tried = [System.Collections.Generic.List[string]]::new()
 
-    # Strategy 2: load the raw bytes. Assembly.Load(byte[]) does NOT apply the
-    # zone/loadFromRemoteSources policy that makes Add-Type fail with
-    # 0x80131515, so this succeeds even when the mark-of-the-web survives
-    # (locked-down ADS, GPO, extracted-from-ZIP folders, some file servers).
-    if (-not ($typeName -as [type])) {
+    # Candidates: the requested path first, then everything else we know about.
+    $candidates = @($Path) + @((Get-MrmEwsInstallPath).SearchOrder | Where-Object { $_ -ne $Path })
+    $candidates = @($candidates | Where-Object { $_ -and (Test-Path $_) })
+
+    $lastErr = $null
+    foreach ($c in $candidates) {
+        try { if (Get-Command Unblock-File -ErrorAction SilentlyContinue) { Unblock-File -Path $c -ErrorAction SilentlyContinue } } catch { }
+        try { Add-Type -Path $c -ErrorAction Stop } catch { $lastErr = $_ }
+        if ($typeName -as [type]) { $Path = $c; break }
+        $tried.Add($c)
+
+        # Zone.Identifier that survived Unblock-File (GPO, locked ADS, folder
+        # extracted from a ZIP): copy to a fresh temp file - a new file has no
+        # mark-of-the-web - and load THAT as a file, keeping Assembly.Location.
         try {
-            $bytes = [System.IO.File]::ReadAllBytes($Path)
-            [System.Reflection.Assembly]::Load($bytes) | Out-Null
+            $shadow = Join-Path ([IO.Path]::GetTempPath()) ("mrm-ews-" + [Guid]::NewGuid().ToString('n'))
+            New-Item -ItemType Directory -Force -Path $shadow | Out-Null
+            $copy = Join-Path $shadow 'Microsoft.Exchange.WebServices.dll'
+            Copy-Item -LiteralPath $c -Destination $copy -Force
+            try { if (Get-Command Unblock-File -ErrorAction SilentlyContinue) { Unblock-File -Path $copy -ErrorAction SilentlyContinue } } catch { }
+            Add-Type -Path $copy -ErrorAction Stop
             if ($typeName -as [type]) {
-                Write-MrmLog -Level Warning -Message "Add-Type was blocked for ${Path}; loaded the assembly from raw bytes instead (zone policy bypassed)."
+                Write-MrmLog -Level Warning -Message "Loading was blocked for ${c}; loaded a clean shadow copy from ${copy} instead."
+                $Path = $copy
+                break
             }
-        } catch { }
-    }
-
-    # Strategy 3: another copy elsewhere in the search order (e.g. the
-    # non-repo install location) may be intact.
-    if (-not ($typeName -as [type])) {
-        foreach ($alt in ((Get-MrmEwsInstallPath).SearchOrder | Where-Object { $_ -ne $Path -and (Test-Path $_) })) {
-            try {
-                [System.Reflection.Assembly]::Load([System.IO.File]::ReadAllBytes($alt)) | Out-Null
-                if ($typeName -as [type]) {
-                    Write-MrmLog -Level Warning -Message "Loaded EWS Managed API from alternate location: ${alt}"
-                    $Path = $alt
-                    break
-                }
-            } catch { }
-        }
+        } catch { $lastErr = $_ }
     }
 
     if (-not ($typeName -as [type])) {
-        $len = try { (Get-Item $Path).Length } catch { 0 }
+        $sizes = foreach ($t in $tried) { "  ${t} ($((Get-Item $t -ErrorAction SilentlyContinue).Length) bytes)" }
         $hint = @(
-            "EWS Managed API could not be loaded from: ${Path}",
-            "Size on disk: ${len} bytes (expected ~1130264 for 2.2.0)",
-            "Add-Type AND raw-byte loading both failed, so this is most likely a",
-            "corrupted/incomplete file rather than a zone block.",
+            "EWS Managed API could not be loaded. Tried:",
+            ($sizes -join [Environment]::NewLine),
+            "Expected size for 2.2.0: 1130264 bytes, MD5 98CB0EF1ECBB683D0DA19A17B5739F25",
             "Diagnose:",
-            "    (Get-FileHash '${Path}' -Algorithm MD5).Hash   # expect 98CB0EF1ECBB683D0DA19A17B5739F25",
-            "    Get-Item '${Path}' -Stream * | Select-Object Stream",
-            "Fix - force a clean copy outside the repo:",
+            "    (Get-FileHash '<path>' -Algorithm MD5).Hash",
+            "    Get-Item '<path>' -Stream * | Select-Object Stream",
+            "Fix - install a clean copy outside the repo and remove the repo copy:",
             "    Import-Module .\MRM-RetentionRepair.psm1 -Force",
             "    Install-MrmEwsManagedApi -Force",
-            "If the hash differs from the expected value, git mangled the binary on",
-            "checkout (missing .gitattributes / core.autocrlf); re-run the installer",
-            "and delete the repo-local copy."
+            "    Remove-Item .\lib\Microsoft.Exchange.WebServices.dll"
         ) -join [Environment]::NewLine
-        if ($addErr) { $hint += [Environment]::NewLine + "Inner error: $($addErr.Exception.Message)" }
+        if ($lastErr) { $hint += [Environment]::NewLine + "Inner error: $($lastErr.Exception.Message)" }
         throw $hint
+    }
+
+    # Proof, not assumption: the type must also be CONSTRUCTIBLE. A byte-loaded
+    # or half-broken assembly resolves the type but throws here.
+    try {
+        $probe = [Microsoft.Exchange.WebServices.Data.ExchangeService]::new(
+            [Microsoft.Exchange.WebServices.Data.ExchangeVersion]::Exchange2013_SP1)
+        if ($null -eq $probe) { throw 'ExchangeService ctor returned null.' }
+    }
+    catch {
+        throw ("EWS assembly loaded from ${Path} but ExchangeService could not be constructed: " +
+               "$($_.Exception.Message). This usually means the assembly was loaded without a " +
+               "file location. Run Install-MrmEwsManagedApi -Force and remove the repo-local copy.")
     }
     Write-MrmLog -Level Info -Message "Loaded EWS Managed API from ${Path} (type resolved)."
 }

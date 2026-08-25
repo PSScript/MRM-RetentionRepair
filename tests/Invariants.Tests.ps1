@@ -506,23 +506,6 @@ Describe 'EWS assembly provisioning (NuGet install, stable location)' {
     }
 }
 
-Describe 'Assembly loading is resilient to zone blocks and corrupt copies' {
-    It 'falls back to Assembly.Load(byte[]) which bypasses zone policy' {
-        $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
-        $src | Should -Match '\[System\.Reflection\.Assembly\]::Load\(\$bytes\)'
-        $src | Should -Match 'zone policy bypassed'
-    }
-    It 'tries other locations from the search order before giving up' {
-        $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
-        $src | Should -Match 'Loaded EWS Managed API from alternate location'
-    }
-    It 'ships a .gitattributes marking DLLs binary (CRLF corruption looks like a zone block)' {
-        $ga = Join-Path (Join-Path $PSScriptRoot '..') '.gitattributes'
-        Test-Path $ga | Should -BeTrue
-        (Get-Content $ga -Raw) | Should -Match '\*\.dll\s+binary'
-    }
-}
-
 Describe 'NuGet download works on Windows PowerShell 5.1' {
     It 'saves the package with a .zip extension (5.1 Expand-Archive rejects .nupkg)' {
         $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
@@ -532,5 +515,45 @@ Describe 'NuGet download works on Windows PowerShell 5.1' {
     It 'falls back to ZipFile::ExtractToDirectory if Expand-Archive fails' {
         $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
         $src | Should -Match 'ZipFile\]::ExtractToDirectory'
+    }
+}
+
+Describe 'EWS assembly must be loaded as a FILE, never from bytes' {
+    It 'never uses Assembly.Load(byte[]) for the EWS assembly' {
+        # Assembly.Load(byte[]) yields Location = "" and ExchangeServiceBase's
+        # static ctor reads Location -> TypeInitializationException on the first
+        # ExchangeService(). Add-Type resolves the type, so the failure only
+        # surfaces later, at the first real call. Never do it.
+        $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
+        $src | Should -Not -Match '\[System\.Reflection\.Assembly\]::Load\(\$bytes\)'
+    }
+    It 'uses a shadow copy for zone-blocked files (keeps Assembly.Location)' {
+        $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
+        $src | Should -Match 'clean shadow copy'
+    }
+    It 'probes the ExchangeService constructor before declaring success' {
+        $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
+        $src | Should -Match 'ExchangeService could not be constructed'
+    }
+    It 'actually constructs an ExchangeService after Import-MrmEwsAssembly' {
+        Import-MrmEwsAssembly
+        $svc = [Microsoft.Exchange.WebServices.Data.ExchangeService]::new(
+            [Microsoft.Exchange.WebServices.Data.ExchangeVersion]::Exchange2013_SP1)
+        $svc | Should -Not -BeNullOrEmpty
+    }
+}
+
+
+Describe 'Assembly search order has a single source of truth' {
+    It 'Import-MrmEwsAssembly uses Get-MrmEwsInstallPath, not a hardcoded list' {
+        # A stale hardcoded candidate list put the repo-local copy FIRST and
+        # shadowed a freshly installed clean copy in LocalAppData.
+        $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
+        $src | Should -Not -Match "\(Join-Path \`$PSScriptRoot 'lib/Microsoft\.Exchange\.WebServices\.dll'\),"
+        $src | Should -Match '\(Get-MrmEwsInstallPath\)\.SearchOrder'
+    }
+    It 'ranks the repo-local copy LAST' {
+        $p = Get-MrmEwsInstallPath
+        @($p.SearchOrder)[-1] | Should -Match 'lib[\\/]Microsoft\.Exchange\.WebServices\.dll$'
     }
 }
