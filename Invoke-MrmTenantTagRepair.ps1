@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-Tenant-scale removal of ONE physical MRM PolicyTag across many mailboxes —
+Tenant-scale removal of ONE physical MRM PolicyTag across many mailboxes -
 with a deliberately slow learning curve:
 
     DryRun (default)  ->  -TestRun (tiny, capped pilot)  ->  -Apply (full)
@@ -15,7 +15,7 @@ Every single mutation runs the full evidence cell, per folder:
 An unexpected post-write state stops the affected mailbox immediately.
 
 .DESCRIPTION
-Mailbox selection — two modes:
+Mailbox selection - two modes:
   1) explicit users:  -Mailbox 'a@contoso.com'
                       -Mailbox 'a@contoso.com,b@contoso.com'      (comma/semicolon in one string)
                       -Mailbox @('a@contoso.com','b@contoso.com')  (real array)
@@ -24,11 +24,11 @@ Mailbox selection — two modes:
                          needs Graph application permission User.Read.All)
 
 Run modes (mutually exclusive; DryRun when neither is given):
-  DryRun   — census + candidate list per mailbox, ZERO writes.
-  -TestRun — gather experience first: writes, but capped to
+  DryRun   - census + candidate list per mailbox, ZERO writes.
+  -TestRun - gather experience first: writes, but capped to
              -TestRunMailboxLimit mailboxes (default 1) and
              -TestRunFolderLimit folders per mailbox (default 1).
-  -Apply   — full run over all selected mailboxes.
+  -Apply   - full run over all selected mailboxes.
 
 .EXAMPLE
     # 1) dry run over two users
@@ -77,7 +77,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# Mode validation FIRST — before any auth or config work.
+# Mode validation FIRST - before any auth or config work.
 if ($TestRun -and $Apply) { throw 'PARAMETER ERROR: -TestRun and -Apply are mutually exclusive. DryRun -> -TestRun -> -Apply, in that order.' }
 $runMode = if ($Apply) { 'Apply' } elseif ($TestRun) { 'TestRun' } else { 'DryRun' }
 
@@ -105,7 +105,7 @@ if ($authMode -eq 'Config') {
     Write-MrmLog -Level Info -Message "Config loaded: ${ConfigPath} (auth mode: ${authMode}; secrets never logged)."
 }
 if (-not $TargetRetentionId) { throw 'TargetRetentionId is required (CLI or config).' }
-$tgt = Test-MrmTargetRetentionId -TargetRetentionId $TargetRetentionId   # protected list enforced — this is a MUTATION tool
+$tgt = Test-MrmTargetRetentionId -TargetRetentionId $TargetRetentionId   # protected list enforced - this is a MUTATION tool
 
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 $log = Join-Path $OutputDirectory 'tenant-repair.log'
@@ -124,7 +124,7 @@ switch ($authMode) {
             [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet)
     }
     'Secret' {
-        Write-MrmLog -LogPath $log -Level Warning -Message 'Client-secret auth in use — certificate auth is preferred.'
+        Write-MrmLog -LogPath $log -Level Warning -Message 'Client-secret auth in use - certificate auth is preferred.'
     }
 }
 function Get-RepairToken {
@@ -182,7 +182,7 @@ foreach ($m in $targets) {
         $token   = Get-RepairToken -Scope 'https://outlook.office365.com/.default'
         $service = Connect-MrmEwsService -Mailbox $m -AccessToken $token
 
-        # READ #1 — full census, persisted as the pre-state backup for this mailbox
+        # READ #1 - full census, persisted as the pre-state backup for this mailbox
         $census = Get-MrmFolderCensus -Service $service
         Export-MrmEvidence -Records $census -OutputDirectory $mbxDir -BaseName 'pre-census' | Out-Null
 
@@ -195,9 +195,9 @@ foreach ($m in $targets) {
         $backupPath = Export-MrmTagStateBackup -Mailbox $m -Census $census -Directory $mbxDir -TargetRetentionId $tgt
         if (-not (Test-MrmTagStateBackup -Path $backupPath -Mailbox $m -ExpectedStampedCount $stampedCount)) {
             if ($runMode -ne 'DryRun') {
-                throw "SAFETY NET FAILED: tag-state backup not verifiable (${backupPath}) — refusing to write in this mailbox."
+                throw "SAFETY NET FAILED: tag-state backup not verifiable (${backupPath}) - refusing to write in this mailbox."
             }
-            Write-MrmLog -LogPath $log -Level Warning -Message "Backup not verifiable (${backupPath}) — DryRun continues, but fix this before -TestRun/-Apply."
+            Write-MrmLog -LogPath $log -Level Warning -Message "Backup not verifiable (${backupPath}) - DryRun continues, but fix this before -TestRun/-Apply."
         } else {
             Write-MrmLog -LogPath $log -Level Info -Message "Safety-net backup verified: ${backupPath} (${stampedCount} stamped folder(s))."
         }
@@ -235,7 +235,7 @@ foreach ($m in $targets) {
                 Candidates=@($r.Candidates).Count; Changed=@($r.Changed).Count
                 Verified=$verified; Unverified=$unverified
                 SkippedOtherTags=@($r.Skipped).Count
-                Error=$(if ($unverified) { 'POST-WRITE STATE UNEXPECTED — inspect JSONL' }
+                Error=$(if ($unverified) { 'POST-WRITE STATE UNEXPECTED - inspect JSONL' }
                         elseif ($runMode -eq 'Apply' -and $remaining -gt 0) { "post-census still shows ${remaining} tagged folder(s)" }
                         else { $null }) })
         }
@@ -258,7 +258,7 @@ $summary | Export-Csv -Path $sumCsv -NoTypeInformation -Encoding utf8
     ConvertTo-Json -Depth 6 | Set-Content -Path $sumJson -Encoding UTF8
 
 Write-Host ''
-Write-Host "================ TENANT TAG REPAIR — ${runMode} ================" -ForegroundColor Cyan
+Write-Host "================ TENANT TAG REPAIR - ${runMode} ================" -ForegroundColor Cyan
 $summary | Format-Table Mailbox, Mode, Candidates, Changed, Verified, Unverified, SkippedOtherTags, Error -AutoSize |
     Out-String -Width 220 | Write-Host
 Write-Host "Evidence cell per mutated folder: READ -> BACKUP (untag-changes-*.jsonl) -> SET -> READ -> COMPARE (Verified)." -ForegroundColor Cyan

@@ -2,7 +2,7 @@
 #Requires -Modules Microsoft.Graph.Authentication
 <#
 .SYNOPSIS
-Phase 2 (Graph parity) — Microsoft.Graph SDK variant.
+Phase 2 (Graph parity) - Microsoft.Graph SDK variant.
 
 Identical audit logic to Invoke-MrmGraphParity.ps1, but authentication and HTTP
 are delegated to the Microsoft.Graph PowerShell SDK (Connect-MgGraph /
@@ -99,9 +99,9 @@ $parity | ConvertTo-Json -Depth 8 | Set-Content -Path $parityPath -Encoding utf8
 Write-MrmLog -Level Info -Message "Parity report: ${parityPath}"
 
 if ($parity.ParityOk) {
-    Write-MrmLog -Level Info -Message 'Gate 7 [Mg]: PASS — Graph READ parity with the EWS oracle.'
+    Write-MrmLog -Level Info -Message 'Gate 7 [Mg]: PASS - Graph READ parity with the EWS oracle.'
 } else {
-    Write-MrmLog -Level Warning -Message 'Gate 7 [Mg]: FAIL — see report. Do NOT proceed to any write experiment.'
+    Write-MrmLog -Level Warning -Message 'Gate 7 [Mg]: FAIL - see report. Do NOT proceed to any write experiment.'
 }
 
 if ($ExperimentalWriteProbe) {

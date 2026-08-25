@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    MRM-RetentionRepair — surgical audit & removal of ONE mailbox-local physical
+    MRM-RetentionRepair - surgical audit & removal of ONE mailbox-local physical
     MRM personal retention tag (PR_POLICY_TAG) via EWS Managed API 2.2 (oracle)
     with a Microsoft Graph read-parity implementation.
 
@@ -11,7 +11,7 @@
                         1B item-level audit    (read-only)
                         1C surgical folder untag (dry-run default, -Apply gated)
       Phase 2 (Graph) : 2A read parity against the EWS census
-                        2B write experiment — GATED, unproven by default.
+                        2B write experiment - GATED, unproven by default.
 
     HARD INVARIANTS (enforced in code, verified in tests):
       * A write happens ONLY when the folder's PHYSICAL PolicyTag RetentionId
@@ -32,16 +32,16 @@ Set-StrictMode -Version Latest
 
 # RetentionIds that may NEVER be selected as a removal target.
 $script:MrmProtectedRetentionIds = @(
-    '414c6a14-3ed5-432e-9edb-c6620a8278f0'   # "Never Delete" — legitimate tenant tag
+    '414c6a14-3ed5-432e-9edb-c6620a8278f0'   # "Never Delete" - legitimate tenant tag
 )
 
 # MAPI property tags (MS-OXPROPS / MS-OXCMSG)
 $script:MrmPropTags = [ordered]@{
-    PR_POLICY_TAG        = 0x3019   # Binary  — PidTagPolicyTag (delete tag GUID)
-    PR_RETENTION_PERIOD  = 0x301A   # Integer — PidTagRetentionPeriod (days)
-    PR_RETENTION_FLAGS   = 0x301D   # Integer — PidTagRetentionFlags
-    PR_ARCHIVE_TAG       = 0x3018   # Binary  — PidTagArchiveTag (read-only here)
-    PR_FOLDER_PATH       = 0x66B5   # String  — folder path, U+FFFE separators
+    PR_POLICY_TAG        = 0x3019   # Binary  - PidTagPolicyTag (delete tag GUID)
+    PR_RETENTION_PERIOD  = 0x301A   # Integer - PidTagRetentionPeriod (days)
+    PR_RETENTION_FLAGS   = 0x301D   # Integer - PidTagRetentionFlags
+    PR_ARCHIVE_TAG       = 0x3018   # Binary  - PidTagArchiveTag (read-only here)
+    PR_FOLDER_PATH       = 0x66B5   # String  - folder path, U+FFFE separators
 }
 
 # PidTagRetentionFlags bit meanings (MS-OXCMSG 2.2.1.56.3)
@@ -106,7 +106,7 @@ function Write-MrmLog {
 #   bytes 8-15 : Data4 as-is
 # The System.Guid(byte[]) constructor interprets exactly this layout, so the
 # .NET Guid type IS the canonical converter. Glen Scales' manual hex shuffle in
-# ReportTagged.ps1 is byte-for-byte equivalent (proven in unit tests) — we do
+# ReportTagged.ps1 is byte-for-byte equivalent (proven in unit tests) - we do
 # not cargo-cult the string shuffle.
 
 function ConvertFrom-MrmPolicyTagBytes {
@@ -150,7 +150,7 @@ function ConvertFrom-MrmRetentionFlags {
     if ($null -eq $Flags) { return '' }
     if ($Flags -eq 0)     { return 'None' }
     # NB: OrderedDictionary treats an [int] indexer argument as POSITION, not key
-    # (real bug caught by unit tests) — therefore enumerate entries instead.
+    # (real bug caught by unit tests) - therefore enumerate entries instead.
     $names = foreach ($kv in $script:MrmRetentionFlagBits.GetEnumerator()) {
         if ($Flags -band [int]$kv.Key) { $kv.Value }
     }
@@ -199,10 +199,10 @@ function Test-MrmWriteAllowed {
 }
 
 # ============================================================================
-# OAuth (app-only) — client credentials, secret or certificate
+# OAuth (app-only) - client credentials, secret or certificate
 # ============================================================================
 
-#region Tenant report (multi-mailbox, read-only — improved ReportTagged.ps1)
+#region Tenant report (multi-mailbox, read-only - improved ReportTagged.ps1)
 
 function ConvertTo-MrmSafeFileName {
     <# UPN -> filesystem-safe stem (user@contoso.com -> user_at_contoso.com). #>
@@ -215,7 +215,7 @@ function ConvertTo-MrmSafeFileName {
 
 function Split-MrmMailboxList {
     <# Ergonomics: accepts ONE user, several comma/semicolon-separated users in
-       one string, a real array, or any mix — returns a trimmed, deduplicated,
+       one string, a real array, or any mix - returns a trimmed, deduplicated,
        order-preserving list. "a@x.com, b@x.com" and @('a@x.com','b@x.com')
        are equivalent. #>
     [CmdletBinding()]
@@ -262,7 +262,7 @@ function Get-MrmGraphMailboxList {
         $uri = if ($page.PSObject.Properties['@odata.nextLink']) { $page.'@odata.nextLink' } else { $null }
     }
     Write-MrmLog -Level Info -Message "Graph discovery: $($out.Count) mail-enabled users."
-    # plain emit (0..n objects) — callers use @(...); the ,-wrap trick nests
+    # plain emit (0..n objects) - callers use @(...); the ,-wrap trick nests
     # empty arrays inside @(cmd) under some hosts (seen under Pester 6)
     return $out
 }
@@ -271,7 +271,7 @@ function Get-MrmTenantTagRollup {
     <# Aggregates per-mailbox folder censuses into a tenant-wide view of every
        PHYSICALLY stamped retention tag (delete AND archive), the core
        physical-vs-effective distinction from gscales/ReportTagged.ps1 kept
-       intact. Pure function — fully unit-testable. #>
+       intact. Pure function - fully unit-testable. #>
     [CmdletBinding()]
     param(
         # records: census rows augmented with a Mailbox property
@@ -307,7 +307,7 @@ function Get-MrmTenantTagRollup {
 function Export-MrmTagStateBackup {
     <# Writes the per-mailbox SAFETY NET: one JSON file containing the complete
        physical tag state (delete AND archive stamps) of every stamped folder,
-       plus a manifest header. This is the restore source — everything needed
+       plus a manifest header. This is the restore source - everything needed
        to re-stamp a folder by hand (FolderId, RetentionId, period, flags) is
        in here. Returns the file path. #>
     [CmdletBinding()]
@@ -336,7 +336,7 @@ function Export-MrmTagStateBackup {
         TargetRetentionId = $TargetRetentionId
         FoldersTotal      = @($Census).Count
         FoldersStamped    = $stamped.Count
-        RestoreHint       = 'Re-stamp manually via EWS: $f.PolicyTag = [Microsoft.Exchange.WebServices.Data.PolicyTag]::new($true,[Guid]"<RetentionId>"); $f.Update() — deliberately not automated.'
+        RestoreHint       = 'Re-stamp manually via EWS: $f.PolicyTag = [Microsoft.Exchange.WebServices.Data.PolicyTag]::new($true,[Guid]"<RetentionId>"); $f.Update() - deliberately not automated.'
         Folders           = $stamped
     } | ConvertTo-Json -Depth 8 | Set-Content -Path $path -Encoding UTF8
     return $path
@@ -355,7 +355,7 @@ function Test-MrmTagStateBackup {
     )
     if (-not (Test-Path $Path)) { Write-MrmLog -Level Error -Message "Backup missing on disk: ${Path}"; return $false }
     try   { $b = Get-Content $Path -Raw -Encoding UTF8 | ConvertFrom-Json }
-    catch { Write-MrmLog -Level Error -Message "Backup unreadable: ${Path} — $($_.Exception.Message)"; return $false }
+    catch { Write-MrmLog -Level Error -Message "Backup unreadable: ${Path} - $($_.Exception.Message)"; return $false }
     foreach ($chk in @(
         @{ ok = ($b.PSObject.Properties['Schema'] -and $b.Schema -eq 'mrm-tagstate-backup/1'); msg = 'schema mismatch' },
         @{ ok = ($b.PSObject.Properties['Mailbox'] -and $b.Mailbox -eq $Mailbox);              msg = 'mailbox mismatch' },
@@ -369,12 +369,12 @@ function Test-MrmTagStateBackup {
 
 #endregion
 
-#region Config (JSON, DPAPI secret handling — tokenhandler/Resend-GraphReplay ergonomics)
+#region Config (JSON, DPAPI secret handling - tokenhandler/Resend-GraphReplay ergonomics)
 
 function Protect-MrmSecretString {
     <# SecureString -> encrypted standard string. On Windows this is DPAPI:
        bound to THIS user on THIS machine. On other platforms PowerShell falls
-       back to an obfuscated (NOT cryptographically protected) encoding —
+       back to an obfuscated (NOT cryptographically protected) encoding -
        treat configs as Windows-user-bound artifacts. #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -614,7 +614,7 @@ function ConvertTo-MrmFolderPath {
 }
 
 # ============================================================================
-# Phase 1A — read-only physical-tag census
+# Phase 1A - read-only physical-tag census
 # ============================================================================
 
 function Get-MrmFolderCensus {
@@ -674,7 +674,7 @@ function Get-MrmFolderCensus {
     foreach ($r in $records) {
         $r.ExistsFilterHit = $physicalIds.Contains($r.FolderId)
         if ($r.HasPhysicalPolicyTag -ne $r.ExistsFilterHit) {
-            Write-MrmLog -Level Warning -Message "Census/Exists mismatch on '$($r.FolderPath)' — HasPhysicalPolicyTag=$($r.HasPhysicalPolicyTag) ExistsFilterHit=$($r.ExistsFilterHit)"
+            Write-MrmLog -Level Warning -Message "Census/Exists mismatch on '$($r.FolderPath)' - HasPhysicalPolicyTag=$($r.HasPhysicalPolicyTag) ExistsFilterHit=$($r.ExistsFilterHit)"
         }
     }
     return $records
@@ -722,7 +722,7 @@ function ConvertTo-MrmCensusRecord {
 }
 
 function Get-MrmCensusSummary {
-    <# The falsifier. Prints the ACTUAL physical count — does not force A or B. #>
+    <# The falsifier. Prints the ACTUAL physical count - does not force A or B. #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][object[]]$Census,
@@ -740,13 +740,13 @@ function Get-MrmCensusSummary {
             "Physical target stamps: $($physicalTarget.Count). No external effective count supplied for comparison."
         }
         elseif ($physicalTarget.Count -lt $KnownEffectiveCount) {
-            "RESULT A-shaped: $($physicalTarget.Count) physical stamps vs ${KnownEffectiveCount} effective folders — inheritance/materialization centered on stamped roots."
+            "RESULT A-shaped: $($physicalTarget.Count) physical stamps vs ${KnownEffectiveCount} effective folders - inheritance/materialization centered on stamped roots."
         }
         elseif ($physicalTarget.Count -eq $KnownEffectiveCount) {
-            "RESULT B-shaped: physical stamps ($($physicalTarget.Count)) equal effective folders (${KnownEffectiveCount}) — tag materialized on every affected folder."
+            "RESULT B-shaped: physical stamps ($($physicalTarget.Count)) equal effective folders (${KnownEffectiveCount}) - tag materialized on every affected folder."
         }
         else {
-            "RESULT C: $($physicalTarget.Count) physical stamps EXCEED the ${KnownEffectiveCount} effective folders. Evidence contradicts both hypotheses — inspect before proceeding."
+            "RESULT C: $($physicalTarget.Count) physical stamps EXCEED the ${KnownEffectiveCount} effective folders. Evidence contradicts both hypotheses - inspect before proceeding."
         }
 
     [pscustomobject]@{
@@ -764,7 +764,7 @@ function Get-MrmCensusSummary {
 }
 
 # ============================================================================
-# Phase 1B — item-level audit (read-only)
+# Phase 1B - item-level audit (read-only)
 # ============================================================================
 
 function Get-MrmItemAudit {
@@ -854,7 +854,7 @@ function Invoke-MrmEwsWithRetry {
 }
 
 # ============================================================================
-# Phase 1C — safe folder untag (dry-run default)
+# Phase 1C - safe folder untag (dry-run default)
 # ============================================================================
 
 function Get-MrmFolderRawState {
@@ -885,7 +885,7 @@ function Invoke-MrmFolderUntag {
     .SYNOPSIS
         Surgically removes the physical PolicyTag from folders whose CURRENT
         physical RetentionId equals -TargetRetentionId. Uses the NATIVE EWS
-        semantic (folder.PolicyTag = $null; folder.Update()) — no manual
+        semantic (folder.PolicyTag = $null; folder.Update()) - no manual
         deletion of 0x3019/0x301A/0x301D. What the native operation does to
         those raw properties is CAPTURED as evidence, not assumed.
 
@@ -916,20 +916,20 @@ function Invoke-MrmFolderUntag {
     }
 
     if (-not $Apply) {
-        Write-MrmLog -LogPath $LogPath -Level Warning -Message "MODE: AUDIT ONLY — NO CHANGES MADE. Re-run with -Apply to mutate."
+        Write-MrmLog -LogPath $LogPath -Level Warning -Message "MODE: AUDIT ONLY - NO CHANGES MADE. Re-run with -Apply to mutate."
         return [pscustomobject]@{ Mode='AuditOnly'; Candidates=$candidates; Changed=@(); Skipped=$skippedOther }
     }
 
     if ($null -eq $Service) { throw 'Apply mode requires a connected EWS service.' }
     $changed = [System.Collections.Generic.List[object]]::new()
     foreach ($c in $candidates) {
-        # Re-verify LIVE state immediately before write — the census may be stale
+        # Re-verify LIVE state immediately before write - the census may be stale
         # and the folder may have changed or disappeared.
         try {
             $before = Get-MrmFolderRawState -Service $Service -FolderId $c.FolderId
         }
         catch {
-            Write-MrmLog -LogPath $LogPath -Level Warning -Message "Folder vanished/unreadable since audit, skipping: $($c.FolderPath) — $($_.Exception.Message)"
+            Write-MrmLog -LogPath $LogPath -Level Warning -Message "Folder vanished/unreadable since audit, skipping: $($c.FolderPath) - $($_.Exception.Message)"
             continue
         }
 
@@ -952,7 +952,7 @@ function Invoke-MrmFolderUntag {
             continue
         }
 
-        $folder.PolicyTag = $null            # native EWS semantic — the oracle behavior
+        $folder.PolicyTag = $null            # native EWS semantic - the oracle behavior
         Invoke-MrmEwsWithRetry { $folder.Update() } | Out-Null
 
         $after = Get-MrmFolderRawState -Service $Service -FolderId $c.FolderId
@@ -972,7 +972,7 @@ function Invoke-MrmFolderUntag {
         if ($record.Verified) {
             Write-MrmLog -LogPath $LogPath -Level Change -Message "VERIFIED clean: $($c.FolderPath) | after 0x3019=$($after.HasPhysicalPolicyTag) 0x301A=$($after.RetentionPeriod) 0x301D=$($after.RetentionFlagsRaw) ($($after.RetentionFlagsDecoded))"
         } else {
-            Write-MrmLog -LogPath $LogPath -Level Error -Message "POST-WRITE STATE UNEXPECTED on $($c.FolderPath) — PolicyTag still present. STOP and inspect ${jsonl}"
+            Write-MrmLog -LogPath $LogPath -Level Error -Message "POST-WRITE STATE UNEXPECTED on $($c.FolderPath) - PolicyTag still present. STOP and inspect ${jsonl}"
             break
         }
     }
@@ -1001,7 +1001,7 @@ function Export-MrmEvidence {
 }
 
 # ============================================================================
-# PHASE 2 — Microsoft Graph (read parity; write experiment gated)
+# PHASE 2 - Microsoft Graph (read parity; write experiment gated)
 # ============================================================================
 
 function Invoke-MrmGraphRequest {
@@ -1031,7 +1031,7 @@ function Invoke-MrmGraphRequest {
             $attempt++
             if ($status -eq 401 -and -not $refreshed) {
                 $refreshed = $true
-                Write-MrmLog -Level Warning -Message "Graph 401 — refreshing token once and retrying."
+                Write-MrmLog -Level Warning -Message "Graph 401 - refreshing token once and retrying."
                 & $TokenProvider -Force | Out-Null
                 continue
             }
@@ -1042,13 +1042,13 @@ function Invoke-MrmGraphRequest {
                 try { $h = $_.Exception.Response.Headers['Retry-After']; if ($h) { $ra = [int]$h } } catch { }
                 try { $v = $_.Exception.Response.Headers.GetValues('Retry-After') | Select-Object -First 1; if ($v) { $ra = [int]$v } } catch { }
                 $ra = [Math]::Min([Math]::Max($ra,1), 300)
-                Write-MrmLog -Level Warning -Message "Graph 429 — honoring Retry-After=${ra}s (attempt ${attempt}/${MaxRetries})"
+                Write-MrmLog -Level Warning -Message "Graph 429 - honoring Retry-After=${ra}s (attempt ${attempt}/${MaxRetries})"
                 Start-Sleep -Seconds $ra
                 continue
             }
             if ($status -ge 500 -and $status -le 599 -and $attempt -le $MaxRetries) {
                 $wait = [Math]::Min(60, [Math]::Pow(2, $attempt))
-                Write-MrmLog -Level Warning -Message "Graph ${status} — backoff $([int]$wait)s (attempt ${attempt}/${MaxRetries})"
+                Write-MrmLog -Level Warning -Message "Graph ${status} - backoff $([int]$wait)s (attempt ${attempt}/${MaxRetries})"
                 Start-Sleep -Seconds $wait
                 continue
             }
@@ -1206,7 +1206,7 @@ function Compare-MrmCensusParity {
 }
 
 function Get-MrmGraphItemAudit {
-    <# Read-only Graph item audit for one folder — parity counterpart of 1B. #>
+    <# Read-only Graph item audit for one folder - parity counterpart of 1B. #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Mailbox,
@@ -1248,7 +1248,7 @@ function Get-MrmGraphItemAudit {
 function Invoke-MrmGraphWriteProbe {
     <#
     .SYNOPSIS
-        PHASE 2B — controlled write EXPERIMENT on exactly ONE disposable test
+        PHASE 2B - controlled write EXPERIMENT on exactly ONE disposable test
         folder. Graph v1.0 documents PATCHing singleValueLegacyExtendedProperties
         but documents NO delete operation for them. We therefore DO NOT assume
         any encoding of "remove". This probe:
@@ -1263,7 +1263,7 @@ function Invoke-MrmGraphWriteProbe {
 
         DEFAULT PROJECT POSITION until proven:
           READ/AUDIT parity  : supported
-          WRITE/UNTAG parity : NOT PROVEN — EWS remains the mutation path.
+          WRITE/UNTAG parity : NOT PROVEN - EWS remains the mutation path.
     #>
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact='High')]
     param(

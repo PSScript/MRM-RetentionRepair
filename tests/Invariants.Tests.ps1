@@ -431,3 +431,36 @@ Describe 'Per-mailbox tag-state backup — the fail-closed safety net' {
         Test-MrmTagStateBackup -Path $p -Mailbox 'clean@contoso.com' -ExpectedStampedCount 0 | Should -BeTrue
     }
 }
+
+Describe 'Encoding: every shipped script must be BOM-marked UTF-8 (PS 5.1)' {
+    It 'has a UTF-8 BOM on every .ps1/.psm1 we ship' {
+        # Without a BOM, Windows PowerShell 5.1 reads the file as ANSI. A UTF-8
+        # em-dash then becomes  â € U+201D  — and 5.1 accepts U+201D as a STRING
+        # DELIMITER, so a quoted string ends early and the rest becomes stray
+        # positional arguments. This exact bug hit Manage-MrmConfig.ps1.
+        $root = Join-Path $PSScriptRoot '..'
+        $files = Get-ChildItem $root -Include '*.ps1','*.psm1' -Recurse |
+                 Where-Object { $_.FullName -notmatch '[\\/]lib[\\/]' }
+        $missing = @()
+        foreach ($f in $files) {
+            # NB: -Encoding Byte is Windows-PowerShell-only; ReadAllBytes works on both
+            $bytes = [System.IO.File]::ReadAllBytes($f.FullName)
+            if ($bytes.Count -lt 3 -or
+                $bytes[0] -ne 0xEF -or $bytes[1] -ne 0xBB -or $bytes[2] -ne 0xBF) { $missing += $f.Name }
+        }
+        $missing | Should -BeNullOrEmpty -Because 'PS 5.1 misparses BOM-less non-ASCII scripts'
+    }
+    It 'keeps non-ASCII out of executable string literals in the entry scripts' {
+        $root = Join-Path $PSScriptRoot '..'
+        $bad = @()
+        foreach ($f in (Get-ChildItem $root -Filter '*.ps1' -Recurse | Where-Object { $_.FullName -notmatch '[\\/](lib|tests)[\\/]' })) {
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$null)
+            $strings = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.StringConstantExpressionAst] -or
+                                                 $n -is [System.Management.Automation.Language.ExpandableStringExpressionAst] }, $true)
+            foreach ($s in $strings) {
+                if ($s.Extent.Text -match '[^\x00-\x7F]') { $bad += "$($f.Name): $($s.Extent.Text.Substring(0,[Math]::Min(40,$s.Extent.Text.Length)))" }
+            }
+        }
+        $bad | Should -BeNullOrEmpty -Because 'a mojibaked quote inside a string literal breaks parsing on 5.1'
+    }
+}

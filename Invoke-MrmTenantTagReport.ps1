@@ -2,7 +2,7 @@
 <#
 .SYNOPSIS
 Tenant-wide READ-ONLY report of physically stamped retention tags (delete AND
-archive) across user mailboxes — a modernized ReportTagged.ps1
+archive) across user mailboxes - a modernized ReportTagged.ps1
 (gscales/Powershell-Scripts), deliberately "oldschool": raw OAuth + EWS Managed
 API + raw Graph REST for discovery. NO Microsoft.Graph module.
 
@@ -14,13 +14,13 @@ Improvements over the original ReportTagged.ps1:
     (raw Graph REST /users paging; needs application permission User.Read.All)
   * keeps the original's core insight intact: PHYSICAL stamps
     (Exists(PR_POLICY_TAG 0x3019)) are reported separately from what merely
-    LOOKS tagged — plus 0x301A period, 0x301D flags decoded, 0x3018 archive tag
+    LOOKS tagged - plus 0x301A period, 0x301D flags decoded, 0x3018 archive tag
   * .NET Guid byte conversion (unit-proven byte-identical to the original's
     manual hex shuffle)
   * structured evidence: per-mailbox JSON, consolidated CSV, tenant rollup
     (CSV+JSON), -Resume to continue an interrupted run
   * throttling-aware (bounded backoff), per-mailbox error isolation
-  * STRICTLY read-only — the AST test suite forbids every mutating cmdlet
+  * STRICTLY read-only - the AST test suite forbids every mutating cmdlet
 
 .EXAMPLE
     ./Invoke-MrmTenantTagReport.ps1 -ConfigPath ./configs/TENANT-A.json -DiscoverViaGraph
@@ -85,7 +85,7 @@ New-Item -ItemType Directory -Force -Path $perMbxDir | Out-Null
 $log = Join-Path $OutputDirectory 'tenant-report.log'
 
 if ($FilterRetentionId) {
-    # NB: for a REPORT any valid GUID is fine — including protected ones; this
+    # NB: for a REPORT any valid GUID is fine - including protected ones; this
     # is read-only. We only canonicalize here, we do not apply removal rules.
     $g=[Guid]::Empty
     if (-not [Guid]::TryParse($FilterRetentionId,[ref]$g)) { throw "FilterRetentionId is not a GUID: ${FilterRetentionId}" }
@@ -106,7 +106,7 @@ switch ($authMode) {
             [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet)
     }
     'Secret' {
-        Write-MrmLog -LogPath $log -Level Warning -Message 'Client-secret auth in use — certificate auth is preferred.'
+        Write-MrmLog -LogPath $log -Level Warning -Message 'Client-secret auth in use - certificate auth is preferred.'
     }
 }
 function Get-ReportToken {
@@ -136,7 +136,7 @@ if ($DiscoverViaGraph) {
 }
 $targets = @($targets | Where-Object { $_ } | Sort-Object -Unique)
 if (-not $targets) { throw 'No mailboxes to report on. Provide -Mailbox, -MailboxCsv and/or -DiscoverViaGraph.' }
-Write-MrmLog -LogPath $log -Level Info -Message "Tenant report over $($targets.Count) mailbox(es). Filter: $(if ($FilterRetentionId) { $FilterRetentionId } else { '<none — all physical tags>' })"
+Write-MrmLog -LogPath $log -Level Info -Message "Tenant report over $($targets.Count) mailbox(es). Filter: $(if ($FilterRetentionId) { $FilterRetentionId } else { '<none - all physical tags>' })"
 
 # --- per-mailbox census (READ-ONLY) ------------------------------------------
 $allRecords = [System.Collections.Generic.List[object]]::new()
@@ -214,5 +214,5 @@ if ($errors.Count -gt 0) {
     Write-Host "FAILED mailboxes: $($errors.Count) (see rollup JSON / log)" -ForegroundColor Yellow
 }
 Write-Host "Evidence: ${OutputDirectory}" -ForegroundColor Cyan
-Write-Host 'Read-only run — nothing was modified. Effective-vs-physical caveat:' -ForegroundColor Cyan
+Write-Host 'Read-only run - nothing was modified. Effective-vs-physical caveat:' -ForegroundColor Cyan
 Write-Host 'folders inheriting a tag WITHOUT a physical 0x3019/0x3018 stamp do not appear here (by design, as in ReportTagged.ps1).' -ForegroundColor Cyan

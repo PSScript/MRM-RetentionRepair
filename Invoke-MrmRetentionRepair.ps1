@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    PHASE 1C — surgical EWS folder untag. DRY-RUN BY DEFAULT.
+    PHASE 1C - surgical EWS folder untag. DRY-RUN BY DEFAULT.
 
     Removes the physical PolicyTag ONLY from folders whose live physical
     RetentionId equals -TargetRetentionId, using the native EWS semantic
@@ -9,7 +9,7 @@
     other personal tags, "Never Delete", ArchiveTag, tenant policy, MFA state.
 
     Recommended live sequence (Gate 5 before Gate 6):
-      1. Dry run (no -Apply) — review the candidate list.
+      1. Dry run (no -Apply) - review the candidate list.
       2. Pilot on ONE controlled folder:
            -Apply -PilotFolderPath '/Archive/Projects/<one branch>' -CaptureFixture
          Then verify externally (Get-MailboxFolderStatistics -IncludeAnalysis)
@@ -94,7 +94,7 @@ switch ($authMode) {
         $token = Get-MrmAccessToken -TenantId $TenantId -ClientId $ClientId -Certificate $cert
     }
     'Secret' {
-        Write-MrmLog -LogPath $log -Level Warning -Message 'Client-secret auth in use — certificate auth is preferred.'
+        Write-MrmLog -LogPath $log -Level Warning -Message 'Client-secret auth in use - certificate auth is preferred.'
         $token = Get-MrmAccessToken -TenantId $TenantId -ClientId $ClientId -ClientSecret $ClientSecret
     }
 }
@@ -116,7 +116,7 @@ $candidates = @($scope | Where-Object { $_.HasPhysicalPolicyTag -and $_.PolicyTa
 
 Write-Host ''
 Write-Host '=============================================================='
-if ($Apply) { Write-Host ' MODE: APPLY' -ForegroundColor Magenta } else { Write-Host ' MODE: AUDIT ONLY (dry run — add -Apply to mutate)' }
+if ($Apply) { Write-Host ' MODE: APPLY' -ForegroundColor Magenta } else { Write-Host ' MODE: AUDIT ONLY (dry run - add -Apply to mutate)' }
 Write-Host "--------------------------------------------------------------"
 Write-Host " Target RetentionId:        ${tgt}"
 Write-Host " Matched physical folders:  $($candidates.Count)"
@@ -161,13 +161,13 @@ if ($Apply -and $result.Changed.Count -gt 0) {
         }
         (& $redact $first.Before) | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $fixDir 'ews-policytag-null-before.json') -Encoding utf8
         (& $redact $first.After)  | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $fixDir 'ews-policytag-null-after.json')  -Encoding utf8
-        Write-MrmLog -LogPath $log -Level Info -Message 'Gate 5 fixtures captured (redacted): tests/fixtures/ews-policytag-null-{before,after}.json — these are the Graph oracle contract.'
+        Write-MrmLog -LogPath $log -Level Info -Message 'Gate 5 fixtures captured (redacted): tests/fixtures/ews-policytag-null-{before,after}.json - these are the Graph oracle contract.'
     }
 
     Write-Host ''
     Write-Host ' NEXT (manual, outside this tool):'
     Write-Host '   Get-MailboxFolderStatistics <mbx> -IncludeAnalysis | compare DeletePolicy/RetentionFlags'
-    Write-Host '   Do NOT run Start-ManagedFolderAssistant — operator decision only, after restore.'
+    Write-Host '   Do NOT run Start-ManagedFolderAssistant - operator decision only, after restore.'
 }
 
 Write-Host ''

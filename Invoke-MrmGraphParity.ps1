@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    PHASE 2 — Microsoft Graph parity.
+    PHASE 2 - Microsoft Graph parity.
 
     2A (default): read-only Graph census of the same mailbox reading
         Binary 0x3019 / Integer 0x301A / Integer 0x301D / Binary 0x3018
@@ -13,7 +13,7 @@
         probe result is EWS-confirmed identical to the fixture contract,
         the project position is:
             READ/AUDIT parity  : supported
-            WRITE/UNTAG parity : NOT PROVEN — mutation stays EWS-only.
+            WRITE/UNTAG parity : NOT PROVEN - mutation stays EWS-only.
 
     Graph permission: application Mail.ReadWrite (admin consented).
     v1.0 only; no beta endpoints are used.
@@ -65,7 +65,7 @@ if ($authMode -eq 'Config') {
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 $tgt = Test-MrmTargetRetentionId -TargetRetentionId $TargetRetentionId
 
-# Token provider closure (Graph scope) — supports -Force refresh on 401.
+# Token provider closure (Graph scope) - supports -Force refresh on 401.
 if ($authMode -eq 'Certificate') {
     $cert = Get-ChildItem $CertificateStore | Where-Object Thumbprint -eq $CertificateThumbprint
     if (-not $cert) { throw "Certificate ${CertificateThumbprint} not found in ${CertificateStore}." }
@@ -99,7 +99,7 @@ Write-Host " Property mismatches:           $($parity.PropertyMismatches)"
 Write-Host " Parity OK:                     $($parity.ParityOk)"
 Write-Host '=============================================================='
 if (-not $parity.ParityOk) {
-    Write-MrmLog -Level Warning -Message 'Gate 7 NOT passed — Graph mutation remains forbidden until read parity is understood.'
+    Write-MrmLog -Level Warning -Message 'Gate 7 NOT passed - Graph mutation remains forbidden until read parity is understood.'
 }
 else {
     Write-MrmLog -Level Info -Message 'Gate 7 passed: Graph read parity established.'
@@ -122,5 +122,5 @@ else {
     Write-Host ''
     Write-Host ' Current project position:'
     Write-Host '   READ/AUDIT parity  : ' -NoNewline; Write-Host $(if ($parity.ParityOk) { 'supported' } else { 'not yet' })
-    Write-Host '   WRITE/UNTAG parity : not proven — EWS remains required for mutation.'
+    Write-Host '   WRITE/UNTAG parity : not proven - EWS remains required for mutation.'
 }

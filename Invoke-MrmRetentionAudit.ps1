@@ -1,10 +1,10 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    PHASE 1A/1B — READ-ONLY audit. Never mutates anything.
+    PHASE 1A/1B - READ-ONLY audit. Never mutates anything.
 
     1A: deep physical-tag census + Exists(PR_POLICY_TAG) cross-check + the
-        falsifier (16 vs 261 vs C — prints the ACTUAL result).
+        falsifier (16 vs 261 vs C - prints the ACTUAL result).
     1B: bounded item-level physical-tag audit of the affected folders
         (opt-in via -IncludeItemAudit).
 
@@ -33,7 +33,7 @@ param(
     [Nullable[int]]$KnownEffectiveCount,       # e.g. 261 from external Get-MailboxFolderStatistics
     [switch]$IncludeItemAudit,
     [int]$MaxItemsPerFolder = 2000,
-    [switch]$IncludeSubjects,                   # off by default — audit stays content-minimal
+    [switch]$IncludeSubjects,                   # off by default - audit stays content-minimal
     [string]$OutputDirectory = (Join-Path $PSScriptRoot 'evidence')
 )
 
@@ -78,7 +78,7 @@ switch ($authMode) {
         $token = Get-MrmAccessToken -TenantId $TenantId -ClientId $ClientId -Certificate $cert
     }
     'Secret' {
-        Write-MrmLog -LogPath $log -Level Warning -Message 'Client-secret auth in use — certificate auth is preferred.'
+        Write-MrmLog -LogPath $log -Level Warning -Message 'Client-secret auth in use - certificate auth is preferred.'
         $token = Get-MrmAccessToken -TenantId $TenantId -ClientId $ClientId -ClientSecret $ClientSecret
     }
 }
@@ -109,7 +109,7 @@ Write-Host " Other physical policy tags:   $($summary.PhysicalOtherPolicyTags)"
 Write-Host '--------------------------------------------------------------'
 Write-Host " FALSIFIER: $($summary.Conclusion)"
 Write-Host '--------------------------------------------------------------'
-Write-Host ' MODE: AUDIT ONLY — NO CHANGES MADE'
+Write-Host ' MODE: AUDIT ONLY - NO CHANGES MADE'
 Write-Host '=============================================================='
 Write-MrmLog -LogPath $log -Level Info -Message "Gate 3 evidence: $($summary.Conclusion)"
 
@@ -118,7 +118,7 @@ if ($IncludeItemAudit) {
     $tgt = Test-MrmTargetRetentionId -TargetRetentionId $TargetRetentionId
     $affected = @($census | Where-Object { $_.PolicyTagRetentionId -eq $tgt })
     if (-not $affected) {
-        # No physical stamps — audit items of every folder branch the operator flags is
+        # No physical stamps - audit items of every folder branch the operator flags is
         # out of scope here; sample the whole tree bounded instead.
         Write-MrmLog -LogPath $log -Level Warning -Message 'No physically target-stamped folders; item audit will sample ALL folders with items (bounded).'
         $affected = @($census | Where-Object { $_.ItemCount -gt 0 })
@@ -136,7 +136,7 @@ if ($IncludeItemAudit) {
     $dist | Format-Table -AutoSize | Out-String | Write-Host
     if ($itemTarget.Count -gt 0) {
         Write-Host '   => Restored/current items DO carry physical stamps. Folder untag alone'
-        Write-Host '      will NOT strip these — a separate, evidence-gated item-repair decision'
+        Write-Host '      will NOT strip these - a separate, evidence-gated item-repair decision'
         Write-Host '      is required (NOT implemented as an automatic path by design).'
     } else {
         Write-Host '   => No physical item stamps found in the sample; item retention appears'

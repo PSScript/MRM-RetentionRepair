@@ -1,11 +1,11 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
 Configuration management for MRM-RetentionRepair (Create / Test / List / Show / Encrypt).
 
 Same ergonomics as PSScript/Resend-GraphReplay's Manage-GraphReplayConfig.ps1:
 one JSON file per tenant/run, secrets stored DPAPI-encrypted
-(ConvertFrom-SecureString — bound to the creating user+machine on Windows),
+(ConvertFrom-SecureString - bound to the creating user+machine on Windows),
 never plaintext on disk, never echoed to console.
 
 .EXAMPLE
@@ -73,10 +73,10 @@ switch ($Action) {
         $cfg.ClientId          = Read-Host 'Client ID / App ID (required)'
         $cfg.Mailbox           = Read-Host 'Target mailbox UPN (required)'
         $cfg.TargetRetentionId = Read-Host 'Target RetentionId GUID to remove (required)'
-        # validate early — this also refuses protected GUIDs at config time
+        # validate early - this also refuses protected GUIDs at config time
         $null = Test-MrmTargetRetentionId -TargetRetentionId $cfg.TargetRetentionId
 
-        Write-Host "`nAuthentication — pick ONE (certificate preferred):" -ForegroundColor Yellow
+        Write-Host "`nAuthentication - pick ONE (certificate preferred):" -ForegroundColor Yellow
         $thumb = Read-OptionalValue -Prompt 'Certificate thumbprint (Cert:\CurrentUser\My)'
         if ($thumb) {
             $cfg.CertificateThumbprint = $thumb
@@ -91,7 +91,7 @@ switch ($Action) {
             } else {
                 $sec = Get-SecretInteractive -Prompt 'Client secret (input hidden)'
                 $cfg.ClientSecretEncrypted = Protect-MrmSecretString -Secret $sec
-                Write-Host 'NOTE: client secret is DISCOURAGED — prefer certificates.' -ForegroundColor Yellow
+                Write-Host 'NOTE: client secret is DISCOURAGED - prefer certificates.' -ForegroundColor Yellow
             }
         }
 
@@ -123,12 +123,12 @@ switch ($Action) {
             $raw | Add-Member -NotePropertyName ClientSecretEncrypted -NotePropertyValue (Protect-MrmSecretString -Secret $sec) -Force
         }
         # cert fields left empty by the template would otherwise look like an
-        # auth choice — drop them so the auth mode resolves unambiguously
+        # auth choice - drop them so the auth mode resolves unambiguously
         foreach ($p in @('CertificateThumbprint','CertificatePath')) {
             if ($raw.PSObject.Properties[$p] -and -not $raw.$p) { $raw.PSObject.Properties.Remove($p) }
         }
         ($raw | ConvertTo-Json -Depth 5) | Set-Content -Path $ConfigPath -Encoding UTF8
-        # read back — never claim success without proof
+        # read back - never claim success without proof
         $verify = Get-Content $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
         if (-not ($verify.PSObject.Properties['ClientSecretEncrypted'] -and $verify.ClientSecretEncrypted)) {
             throw "Write-back verification FAILED: ${ConfigPath} has no ClientSecretEncrypted."
@@ -160,7 +160,7 @@ switch ($Action) {
         $c = Get-Content $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
         foreach ($p in $c.PSObject.Properties) {
             $v = $p.Value
-            if ($p.Name -match 'Secret|Password') { $v = '***' + $(if ($p.Name -match 'Encrypted') { ' (DPAPI)' } else { ' (PLAINTEXT — run -Action Encrypt!)' }) }
+            if ($p.Name -match 'Secret|Password') { $v = '***' + $(if ($p.Name -match 'Encrypted') { ' (DPAPI)' } else { ' (PLAINTEXT - run -Action Encrypt!)' }) }
             Write-Host ("{0,-32} {1}" -f $p.Name, $v)
         }
     }
@@ -175,7 +175,7 @@ switch ($Action) {
         $null = Test-MrmTargetRetentionId -TargetRetentionId $cfg.TargetRetentionId
         Write-Host '[ok] required fields + target GUID valid (and not a protected tag)' -ForegroundColor Green
 
-        # token smoke tests (no mailbox access — pure auth)
+        # token smoke tests (no mailbox access - pure auth)
         $cert = $null
         if ($cfg.PSObject.Properties['CertificateThumbprint'] -and $cfg.CertificateThumbprint) {
             $store = if ($cfg.PSObject.Properties['CertificateStore'] -and $cfg.CertificateStore) { $cfg.CertificateStore } else { 'Cert:\CurrentUser\My' }
