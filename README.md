@@ -1,41 +1,53 @@
 # MRM-RetentionRepair
 
-Safe, evidence-driven audit + surgical removal of one bad classic Exchange
-Online MRM Personal retention tag from a mailbox. Two strict phases:
-EWS Managed API 2.2 (OAuth, oracle) → Microsoft Graph (read parity; write
-experiment gated & unproven by default).
+*(English version: [README_EN.md](README_EN.md))*
+
+Sicheres, evidenzgetriebenes Audit + chirurgisches Entfernen **eines** fehlerhaften
+klassischen Exchange-Online-MRM-Personal-Retention-Tags aus einer Mailbox.
+Zwei strikte Phasen: EWS Managed API 2.2 (OAuth, **Verhaltensorakel**) →
+Microsoft Graph (Read-Parität; Write nur als abgesichertes Experiment, per
+Default **nicht bewiesen**).
 
     MRM-RetentionRepair/
-      MRM-RetentionRepair.psm1        core module (30 exported functions)
-      Invoke-MrmRetentionAudit.ps1    Phase 1A/1B — read-only census + item audit
-      Invoke-MrmRetentionRepair.ps1   Phase 1C   — dry-run default, -Apply gated
-      Invoke-MrmGraphParity.ps1       Phase 2A/2B — token-based ("oldschool"): raw
-                                       client_credentials + Invoke-RestMethod,
-                                       ZERO module dependencies (tokenhandler-style)
-      Invoke-MrmGraphParity.Mg.ps1    Phase 2A/2B — Microsoft.Graph SDK variant:
+      MRM-RetentionRepair.psm1        Kernmodul (30 exportierte Funktionen)
+      Invoke-MrmRetentionAudit.ps1    Phase 1A/1B — Read-only-Zensus + Item-Audit
+      Invoke-MrmRetentionRepair.ps1   Phase 1C   — Dry-Run als Default, -Apply gegated
+      Invoke-MrmGraphParity.ps1       Phase 2A/2B — tokenbasiert ("oldschool"):
+                                       rohes client_credentials + Invoke-RestMethod,
+                                       NULL Modul-Abhängigkeiten (tokenhandler-Stil)
+      Invoke-MrmGraphParity.Mg.ps1    Phase 2A/2B — Microsoft.Graph-SDK-Variante:
                                        Connect-MgGraph / Invoke-MgGraphRequest
-                                       (requires only Microsoft.Graph.Authentication)
-      lib/                             EWS Managed API 2.2 (NuGet, net40; loads in pwsh7)
-      tests/                           Pester suite (33 tests) + fixtures
-      docs/RUNBOOK.md                  operator runbook, gates, EWS retirement notes
+                                       (braucht nur Microsoft.Graph.Authentication)
+      lib/                             EWS Managed API 2.2 (NuGet, net40; lädt unter pwsh7)
+      tests/                           Pester-Suite (33 Tests) + Fixtures
+      docs/RUNBOOK.md                  Operator-Runbook, Gates, EWS-Retirement-Hinweise
 
-Compatibility
--------------
-- Windows PowerShell 5.1 AND PowerShell 7+ (PSScriptAnalyzer
-  PSUseCompatibleSyntax targets 5.1/7.0: clean; all files carry a UTF-8 BOM so
-  5.1 does not misread non-ASCII as ANSI).
-- Retry-After is read via BOTH header APIs (WebHeaderCollection indexer for
-  5.1's HttpWebResponse, GetValues for 7's HttpResponseMessage) — same dual
-  pattern as PSScript/tokenhandler.
-- Two Graph client variants, same module, same evidence format:
-  * token-based (default, no modules)  -> Invoke-MrmGraphParity.ps1
-  * Microsoft.Graph SDK                -> Invoke-MrmGraphParity.Mg.ps1
-- EWS phase is always raw-OAuth (EWS Managed API 2.2 DLL, auto-fetched from
-  NuGet by Install-MrmEwsManagedApi or shipped in lib/).
-- Tests: Pester 5+/6 under pwsh (note: a Describe name must not contain "<->" —
-  Pester 6.1.0 escaped-flow-control bug).
+Kompatibilität
+--------------
+- Windows PowerShell 5.1 UND PowerShell 7+ (PSScriptAnalyzer
+  PSUseCompatibleSyntax mit Targets 5.1/7.0: sauber; alle Dateien tragen eine
+  UTF-8-BOM, damit 5.1 Nicht-ASCII nicht als ANSI fehlinterpretiert).
+- Retry-After wird über BEIDE Header-APIs gelesen (WebHeaderCollection-Indexer
+  für die HttpWebResponse von 5.1, GetValues für die HttpResponseMessage von 7)
+  — dasselbe duale Muster wie PSScript/tokenhandler.
+- Zwei Graph-Client-Varianten, gleiches Modul, gleiches Evidence-Format:
+  * tokenbasiert (Default, keine Module)  -> Invoke-MrmGraphParity.ps1
+  * Microsoft.Graph SDK                   -> Invoke-MrmGraphParity.Mg.ps1
+- Die EWS-Phase ist immer Raw-OAuth (EWS Managed API 2.2 DLL, per
+  Install-MrmEwsManagedApi automatisch von NuGet geladen oder aus lib/).
+- Tests: Pester 5+/6 unter pwsh (Hinweis: ein Describe-Name darf kein "<->"
+  enthalten — Escaped-Flow-Control-Bug in Pester 6.1.0).
 
-Run tests:  pwsh -c "Invoke-Pester -Path ./tests"
-Start here: docs/RUNBOOK.md
-References: PSScript/tokenhandler (throttling/token patterns),
-            PSScript/Resend-GraphReplay (client_credentials + 429 handling)
+Leitplanken
+-----------
+- Schreibzugriff nur, wenn die aktuell gelesene physische RetentionId EXAKT dem
+  Ziel entspricht; Nicht-Treffer ⇒ kein Write (der invertierte xedoc64-Bug).
+- Geschützte Tags (z. B. "Never Delete") sind niemals entfernbar — erzwungen im
+  Code und per Test.
+- Kein Start-ManagedFolderAssistant, kein Set-Mailbox, kein Restore/Delete/Move
+  — ein AST-basierter Test verbietet diese Cmdlets in jeder ausgelieferten Datei.
+
+Tests ausführen:  pwsh -c "Invoke-Pester -Path ./tests"
+Einstieg:         docs/RUNBOOK.md
+Referenzen:       PSScript/tokenhandler (Throttling-/Token-Muster),
+                  PSScript/Resend-GraphReplay (client_credentials + 429-Handling)
