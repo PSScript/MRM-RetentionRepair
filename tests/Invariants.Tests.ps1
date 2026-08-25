@@ -796,3 +796,45 @@ Describe 'Folder addressing: ID is authoritative, path is display only' {
         $realSeparator | Should -Be $slashInName    # indistinguishable afterwards
     }
 }
+
+Describe 'Staged apply: verify phase, error budget, no vacuous success' {
+    BeforeAll { $script:T = 'd94993b5-e987-4275-8707-072057cfb2b8'
+                $script:Empty  = [pscustomobject]@{ HasPhysicalPolicyTag=$false; PolicyTagRetentionId=$null; PolicyTagFirstClass=$null }
+                $script:Tagged = [pscustomobject]@{ HasPhysicalPolicyTag=$true;  PolicyTagRetentionId=$T;    PolicyTagFirstClass=$T } }
+
+    It 'REFUSES to call an untag successful when before AND after are both empty' {
+        $v = Test-MrmUntagEffective -Before $Empty -After $Empty -TargetRetentionId $T
+        $v.Effective | Should -BeFalse
+        $v.Vacuous   | Should -BeTrue
+        $v.Reason    | Should -Match 'VACUOUS'
+    }
+    It 'accepts an already-clean before-state ONLY on -Retry, and still flags it vacuous' {
+        $v = Test-MrmUntagEffective -Before $Empty -After $Empty -TargetRetentionId $T -IsRetry
+        $v.Effective | Should -BeTrue
+        $v.Vacuous   | Should -BeTrue
+    }
+    It 'requires a real transition tagged -> untagged' {
+        (Test-MrmUntagEffective -Before $Tagged -After $Empty  -TargetRetentionId $T).Effective | Should -BeTrue
+        (Test-MrmUntagEffective -Before $Tagged -After $Tagged -TargetRetentionId $T).Effective | Should -BeFalse
+        (Test-MrmUntagEffective -Before $Tagged -After $null   -TargetRetentionId $T).Effective | Should -BeFalse
+    }
+    It 'exposes the staging knobs and separate failure log' {
+        $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
+        $src | Should -Match '\$VerifyCount = 5'
+        $src | Should -Match '\$MaxErrors = 10'
+        $src | Should -Match '\$MaxErrorRate = 0\.01'
+        $src | Should -Match 'untag-failures-\$\{stamp\}\.jsonl'
+        $src | Should -Match 'Write-Progress -Activity ''Removing physical PolicyTag'''
+    }
+    It 'aborts the whole run when a verify-phase folder fails' {
+        $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
+        $src | Should -Match 'verification failed on folder \$\{index\} of \$\{VerifyCount\}'
+        $src | Should -Match 'exceeded -MaxErrors'
+        $src | Should -Match 'failure rate .0:P1. over .1. folders exceeded'
+    }
+    It 'addresses folders by FolderId in the apply loop, never by path' {
+        $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
+        $src | Should -Match 'Get-MrmFolderRawState -Service \$Service -FolderId \$c\.FolderId'
+        $src | Should -Match 'the authoritative address'
+    }
+}

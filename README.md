@@ -89,7 +89,28 @@ Anleitung (Quickstart)
 
        ./Invoke-MrmRetentionAudit.ps1 -ConfigPath ./configs/TENANT-A.json -IncludeItemAudit
 
-3. **Gate 5 — Pilot** (genau EIN Ordner, Fixtures für den Graph-Vertrag):
+3. **Gate 5/6 — gestufter Apply.** Der Lauf ist dreigeteilt und bricht von selbst ab:
+
+       # Trockenlauf zeigt, WELCHE 5 Ordner einzeln verifiziert wuerden (mit FolderId)
+       ./Invoke-MrmRetentionRepair.ps1 -ConfigPath ./configs/kind.json
+
+       # echter Lauf
+       ./Invoke-MrmRetentionRepair.ps1 -ConfigPath ./configs/kind.json -Apply
+
+   * **Verify-Phase** (`-VerifyCount`, Default 5): jeder Ordner per FolderId,
+     lautes Vorher/Nachher. Scheitert einer, startet der Bulk gar nicht erst.
+   * **Bulk-Phase**: nur noch Fortschrittsbalken. Abbruch bei mehr als
+     `-MaxErrors` (10) Fehlern oder — ab 50 Ordnern — mehr als 1 %
+     (`-MaxErrorRate`).
+   * Erfolge nach `untag-changes-*.jsonl`, Fehler getrennt nach
+     `untag-failures-*.jsonl`, am Ende Fehlergruppen nach Haeufigkeit.
+   * **Kein Erfolg ohne Beweis:** ein Ordner gilt nur als repariert, wenn
+     Vorher den Ziel-Tag HATTE und Nachher nicht mehr. Sind beide leer, ist das
+     KEIN Beweis und zaehlt als Fehler — ausser bei `-Retry` (Wiederholungslauf),
+     wo eine bereits saubere Vorher-Seite erwartbar ist und als "vacuous"
+     markiert wird.
+
+3b. **Gate 5 — Einzelpilot** (genau EIN Ordner, Fixtures für den Graph-Vertrag):
 
        ./Invoke-MrmRetentionRepair.ps1 -ConfigPath ./configs/TENANT-A.json `
            -Apply -PilotFolderPath '/Archive/Projects/ProjectB' -CaptureFixture

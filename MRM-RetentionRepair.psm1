@@ -1243,18 +1243,59 @@ function Get-MrmFolderRawState {
     return $rec
 }
 
+function Test-MrmUntagEffective {
+    <# Decides whether ONE untag really worked, from the before/after pair.
+
+       THE TRAP: "after has no tag" alone is NOT proof. If BEFORE was already
+       empty, nothing was demonstrated - the folder simply never carried the
+       tag, and reporting that as success would mean a whole run of vacuous
+       successes. So a genuine proof requires a TRANSITION:
+           before: target tag present   ->   after: tag gone
+       A retry is the one legitimate exception: there the first attempt may
+       already have removed it, so an empty before is expected. #>
+    [CmdletBinding()]
+    [OutputType([object])]
+    param(
+        [Parameter(Mandatory)][AllowNull()]$Before,
+        [Parameter(Mandatory)][AllowNull()]$After,
+        [Parameter(Mandatory)][string]$TargetRetentionId,
+        [switch]$IsRetry
+    )
+    $beforeHad = [bool]($Before -and $Before.HasPhysicalPolicyTag -and
+                        $Before.PolicyTagRetentionId -eq $TargetRetentionId)
+    $afterGone = [bool]($After -and -not $After.HasPhysicalPolicyTag -and
+                        $null -eq $After.PolicyTagFirstClass)
+
+    if (-not $After)   { return [pscustomobject]@{ Effective=$false; Vacuous=$false; Reason='no after-state captured' } }
+    if (-not $afterGone) { return [pscustomobject]@{ Effective=$false; Vacuous=$false; Reason='tag STILL PRESENT after write' } }
+    if (-not $beforeHad) {
+        if ($IsRetry) {
+            return [pscustomobject]@{ Effective=$true; Vacuous=$true
+                Reason='before was already clean - accepted because this is a retry' }
+        }
+        return [pscustomobject]@{ Effective=$false; Vacuous=$true
+            Reason='VACUOUS: before AND after are both empty - nothing was proven (use -Retry if this is a re-run)' }
+    }
+    return [pscustomobject]@{ Effective=$true; Vacuous=$false; Reason='transition tagged -> untagged confirmed' }
+}
+
 function Invoke-MrmFolderUntag {
     <#
     .SYNOPSIS
         Surgically removes the physical PolicyTag from folders whose CURRENT
-        physical RetentionId equals -TargetRetentionId. Uses the NATIVE EWS
-        semantic (folder.PolicyTag = $null; folder.Update()) - no manual
-        deletion of 0x3019/0x301A/0x301D. What the native operation does to
-        those raw properties is CAPTURED as evidence, not assumed.
+        physical RetentionId equals -TargetRetentionId, using the NATIVE EWS
+        semantic (folder.PolicyTag = $null; folder.Update()).
 
-        DRY-RUN BY DEFAULT. Writes require BOTH -Apply and ShouldProcess
-        confirmation (-WhatIf is honored). Idempotent: a second -Apply run
-        finds no matching physical tag and performs zero writes.
+        STAGED APPLY:
+          1. VERIFY PHASE - the first -VerifyCount folders (default 5) are
+             addressed BY FOLDERID and each one must show a real transition
+             (tagged -> untagged). Any failure aborts before the bulk starts.
+          2. BULK PHASE   - progress bar only, no per-folder chatter.
+             Aborts when failures exceed -MaxErrors (default 10) or, once past
+             -ErrorRateMinSample folders, when the failure rate exceeds 1%.
+
+        Successes go to untag-changes-*.jsonl, failures to untag-failures-*.jsonl.
+        DRY-RUN BY DEFAULT: writes need -Apply.
     #>
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact='High')]
     param(
@@ -1263,14 +1304,21 @@ function Invoke-MrmFolderUntag {
         [Parameter(Mandatory)][string]$TargetRetentionId,
         [switch]$Apply,
         [Parameter(Mandatory)][string]$SnapshotDirectory,
-        [string]$LogPath
+        [string]$LogPath,
+        [int]$VerifyCount = 5,            # fully verified, loudly reported
+        [int]$MaxErrors = 10,             # hard abort
+        [double]$MaxErrorRate = 0.01,     # 1% once the sample is meaningful
+        [int]$ErrorRateMinSample = 50,
+        [switch]$Retry                    # allows an already-clean before-state
     )
     Import-MrmEwsAssembly
     $tgt = Test-MrmTargetRetentionId -TargetRetentionId $TargetRetentionId
     New-Item -ItemType Directory -Force -Path $SnapshotDirectory | Out-Null
-    $jsonl = Join-Path $SnapshotDirectory ("untag-changes-{0:yyyyMMdd-HHmmss}.jsonl" -f (Get-Date))
+    $stamp    = '{0:yyyyMMdd-HHmmss}' -f (Get-Date)
+    $jsonl    = Join-Path $SnapshotDirectory "untag-changes-${stamp}.jsonl"
+    $failLog  = Join-Path $SnapshotDirectory "untag-failures-${stamp}.jsonl"
 
-    $candidates = @($Census | Where-Object { $_.HasPhysicalPolicyTag -and $_.PolicyTagRetentionId -eq $tgt })
+    $candidates   = @($Census | Where-Object { $_.HasPhysicalPolicyTag -and $_.PolicyTagRetentionId -eq $tgt })
     $skippedOther = @($Census | Where-Object { $_.HasPhysicalPolicyTag -and $_.PolicyTagRetentionId -ne $tgt })
 
     Write-MrmLog -LogPath $LogPath -Level Info -Message "Untag candidates (physical RetentionId == target): $($candidates.Count)"
@@ -1279,69 +1327,137 @@ function Invoke-MrmFolderUntag {
     }
 
     if (-not $Apply) {
+        # Dry run shows what the staged apply WOULD do - the first VerifyCount
+        # folders by FolderId, then the bulk count.
+        $preview = @($candidates | Select-Object -First $VerifyCount)
         Write-MrmLog -LogPath $LogPath -Level Warning -Message "MODE: AUDIT ONLY - NO CHANGES MADE. Re-run with -Apply to mutate."
-        return [pscustomobject]@{ Mode='AuditOnly'; Candidates=$candidates; Changed=@(); Skipped=$skippedOther }
+        Write-MrmLog -LogPath $LogPath -Level Info -Message "Would VERIFY these $($preview.Count) folder(s) individually:"
+        foreach ($p in $preview) {
+            Write-MrmLog -LogPath $LogPath -Level Info -Message "   $($p.FolderPath)   [FolderId $($p.FolderId.Substring(0,24))...]"
+        }
+        $bulk = [Math]::Max(0, $candidates.Count - $preview.Count)
+        Write-MrmLog -LogPath $LogPath -Level Info -Message "Then BULK across $bulk further folder(s) (progress bar, abort after ${MaxErrors} errors or >$([int]($MaxErrorRate*100))% failures)."
+        return [pscustomobject]@{ Mode='AuditOnly'; Candidates=$candidates; Changed=@(); Failed=@(); Skipped=$skippedOther }
     }
 
     if ($null -eq $Service) { throw 'Apply mode requires a connected EWS service.' }
+
     $changed = [System.Collections.Generic.List[object]]::new()
+    $failed  = [System.Collections.Generic.List[object]]::new()
+    $index   = 0
+    $aborted = $null
+
     foreach ($c in $candidates) {
-        # Re-verify LIVE state immediately before write - the census may be stale
-        # and the folder may have changed or disappeared.
+        $index++
+        $isVerifyPhase = ($index -le $VerifyCount)
+
+        if ($isVerifyPhase) {
+            Write-MrmLog -LogPath $LogPath -Level Info -Message "VERIFY ${index}/${VerifyCount}: $($c.FolderPath) [FolderId $($c.FolderId.Substring(0,24))...]"
+        } else {
+            Write-Progress -Activity 'Removing physical PolicyTag' `
+                -Status "$($index - $VerifyCount) of $($candidates.Count - $VerifyCount) | failures: $($failed.Count)" `
+                -PercentComplete (100 * $index / [Math]::Max(1,$candidates.Count))
+        }
+
+        $before = $null; $after = $null; $err = $null
         try {
+            # Always address by FolderId - never by path.
             $before = Get-MrmFolderRawState -Service $Service -FolderId $c.FolderId
+
+            if (-not (Test-MrmWriteAllowed -CurrentRetentionId $before.PolicyTagRetentionId -TargetRetentionId $tgt)) {
+                throw "live state no longer matches target (now '$($before.PolicyTagRetentionId)')"
+            }
+            if ($PSCmdlet.ShouldProcess($c.FolderPath, "Remove physical PolicyTag ${tgt}")) {
+                $fid    = [Microsoft.Exchange.WebServices.Data.FolderId]::new($c.FolderId)
+                $bindOp = { [Microsoft.Exchange.WebServices.Data.Folder]::Bind($Service, $fid) }.GetNewClosure()
+                $folder = Invoke-MrmEwsWithRetry -Operation $bindOp
+                if (-not $folder.PolicyTag -or $folder.PolicyTag.RetentionId.ToString().ToLowerInvariant() -ne $tgt) {
+                    throw 'bound folder no longer carries the target tag'
+                }
+                $folder.PolicyTag = $null
+                $updateOp = { $folder.Update() }.GetNewClosure()
+                Invoke-MrmEwsWithRetry -Operation $updateOp | Out-Null
+                $after = Get-MrmFolderRawState -Service $Service -FolderId $c.FolderId
+            }
         }
-        catch {
-            Write-MrmLog -LogPath $LogPath -Level Warning -Message "Folder vanished/unreadable since audit, skipping: $($c.FolderPath) - $($_.Exception.Message)"
-            continue
-        }
+        catch { $err = $_.Exception.Message }
 
-        if (-not (Test-MrmWriteAllowed -CurrentRetentionId $before.PolicyTagRetentionId -TargetRetentionId $tgt)) {
-            Write-MrmLog -LogPath $LogPath -Level Warning -Message "Live state no longer matches target (now '$($before.PolicyTagRetentionId)'), NO WRITE: $($c.FolderPath)"
-            continue
-        }
+        $verdict = if ($err) { [pscustomobject]@{ Effective=$false; Vacuous=$false; Reason=$err } }
+                   else { Test-MrmUntagEffective -Before $before -After $after -TargetRetentionId $tgt -IsRetry:$Retry }
 
-        if (-not $PSCmdlet.ShouldProcess($c.FolderPath, "Remove physical PolicyTag ${tgt} (native EWS PolicyTag=null)")) {
-            continue
-        }
-
-        Write-MrmLog -LogPath $LogPath -Level Change -Message "UNTAG: $($c.FolderPath)"
-        $fid = [Microsoft.Exchange.WebServices.Data.FolderId]::new($c.FolderId)
-        $bindOp = { [Microsoft.Exchange.WebServices.Data.Folder]::Bind($Service, $fid) }.GetNewClosure()
-        $folder = Invoke-MrmEwsWithRetry -Operation $bindOp
-
-        # Final in-object guard on the typed property as well.
-        if (-not $folder.PolicyTag -or $folder.PolicyTag.RetentionId.ToString().ToLowerInvariant() -ne $tgt) {
-            Write-MrmLog -LogPath $LogPath -Level Warning -Message "Bound folder no longer carries target tag, NO WRITE: $($c.FolderPath)"
-            continue
-        }
-
-        $folder.PolicyTag = $null            # native EWS semantic - the oracle behavior
-        $updateOp = { $folder.Update() }.GetNewClosure()
-        Invoke-MrmEwsWithRetry -Operation $updateOp | Out-Null
-
-        $after = Get-MrmFolderRawState -Service $Service -FolderId $c.FolderId
         $record = [pscustomobject]@{
             TimestampUtc = [DateTime]::UtcNow.ToString('o')
+            Phase        = $(if ($isVerifyPhase) { 'Verify' } else { 'Bulk' })
             Action       = 'PolicyTagNull'
             Target       = $tgt
-            FolderPath   = $c.FolderPath
-            FolderId     = $c.FolderId
+            FolderId     = $c.FolderId          # the authoritative address
+            FolderPath   = $c.FolderPath        # display only
             Before       = $before
             After        = $after
-            Verified     = (-not $after.HasPhysicalPolicyTag) -and ($null -eq $after.PolicyTagFirstClass)
+            Verified     = $verdict.Effective
+            Vacuous      = $verdict.Vacuous
+            Reason       = $verdict.Reason
         }
-        ($record | ConvertTo-Json -Depth 6 -Compress) | Add-Content -Path $jsonl -Encoding utf8
-        $changed.Add($record)
 
-        if ($record.Verified) {
-            Write-MrmLog -LogPath $LogPath -Level Change -Message "VERIFIED clean: $($c.FolderPath) | after 0x3019=$($after.HasPhysicalPolicyTag) 0x301A=$($after.RetentionPeriod) 0x301D=$($after.RetentionFlagsRaw) ($($after.RetentionFlagsDecoded))"
-        } else {
-            Write-MrmLog -LogPath $LogPath -Level Error -Message "POST-WRITE STATE UNEXPECTED on $($c.FolderPath) - PolicyTag still present. STOP and inspect ${jsonl}"
-            break
+        if ($verdict.Effective) {
+            ($record | ConvertTo-Json -Depth 6 -Compress) | Add-Content -Path $jsonl -Encoding utf8
+            $changed.Add($record)
+            if ($isVerifyPhase) {
+                Write-MrmLog -LogPath $LogPath -Level Change -Message (
+                    "   OK: $($verdict.Reason) | after 0x3019=$($after.HasPhysicalPolicyTag) " +
+                    "0x301A=$($after.RetentionPeriod) 0x301D=$($after.RetentionFlagsRaw)")
+            }
+        }
+        else {
+            ($record | ConvertTo-Json -Depth 6 -Compress) | Add-Content -Path $failLog -Encoding utf8
+            $failed.Add($record)
+            Write-MrmLog -LogPath $LogPath -Level Error -Message "FAILED $($c.FolderPath): $($verdict.Reason)"
+
+            # A failure inside the verify phase stops everything - the mechanism
+            # itself is not proven, so the bulk must not start.
+            if ($isVerifyPhase) {
+                $aborted = "verification failed on folder ${index} of ${VerifyCount}: $($verdict.Reason)"
+                break
+            }
+        }
+
+        # Bulk phase abort conditions
+        if (-not $isVerifyPhase) {
+            if ($failed.Count -gt $MaxErrors) {
+                $aborted = "failure count $($failed.Count) exceeded -MaxErrors ${MaxErrors}"
+                break
+            }
+            if ($index -ge $ErrorRateMinSample) {
+                $rate = $failed.Count / $index
+                if ($rate -gt $MaxErrorRate) {
+                    $aborted = ('failure rate {0:P1} over {1} folders exceeded {2:P0}' -f $rate, $index, $MaxErrorRate)
+                    break
+                }
+            }
         }
     }
-    return [pscustomobject]@{ Mode='Apply'; Candidates=$candidates; Changed=$changed; Skipped=$skippedOther; ChangeLog=$jsonl }
+    Write-Progress -Activity 'Removing physical PolicyTag' -Completed
+
+    if ($aborted) {
+        Write-MrmLog -LogPath $LogPath -Level Error -Message "ABORTED: ${aborted}"
+        Write-MrmLog -LogPath $LogPath -Level Error -Message "Succeeded so far: $($changed.Count) (see ${jsonl}); failures: $($failed.Count) (see ${failLog})"
+    }
+
+    $vac = @($changed | Where-Object Vacuous).Count
+    if ($vac -gt 0) {
+        Write-MrmLog -LogPath $LogPath -Level Warning -Message "${vac} folder(s) accepted as retry with an already-clean before-state - they prove nothing about the mechanism."
+    }
+
+    return [pscustomobject]@{
+        Mode         = 'Apply'
+        Candidates   = $candidates
+        Changed      = $changed
+        Failed       = $failed
+        Skipped      = $skippedOther
+        Aborted      = $aborted
+        ChangeLog    = $jsonl
+        FailureLog   = $failLog
+    }
 }
 
 # ============================================================================
@@ -1680,7 +1796,7 @@ Export-ModuleMember -Function @(
     'Install-MrmEwsManagedApi','Get-MrmEwsInstallPath','Import-MrmEwsAssembly','Connect-MrmEwsService',
     'Get-MrmEwsPropertyDefinitions','Get-MrmFolderCensus','ConvertTo-MrmCensusRecord',
     'Get-MrmCensusSummary','Get-MrmItemAudit','Test-MrmItemPropertyFidelity','Invoke-MrmEwsWithRetry',
-    'Get-MrmFolderRawState','Invoke-MrmFolderUntag','Export-MrmEvidence',
+    'Get-MrmFolderRawState','Invoke-MrmFolderUntag','Test-MrmUntagEffective','Export-MrmEvidence',
     'Invoke-MrmGraphRequest','Invoke-MrmGraphCall','Protect-MrmSecretString','Unprotect-MrmSecretString','Get-MrmConfig','Resolve-MrmEffectiveSetting','ConvertTo-MrmSafeFileName','Get-MrmGraphMailboxList','Get-MrmTenantTagRollup','Split-MrmMailboxList','Export-MrmTagStateBackup','Test-MrmTagStateBackup','Get-MrmGraphFolderCensus','ConvertTo-MrmGraphCensusRecord',
     'Compare-MrmCensusParity','Get-MrmGraphItemAudit','Invoke-MrmGraphWriteProbe'
 )

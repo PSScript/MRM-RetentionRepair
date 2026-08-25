@@ -50,6 +50,10 @@ param(
     [string]$PilotFolderId,            # PREFERRED: unambiguous EWS FolderId from the census
     [string]$PilotFolderPath,          # convenience only - see the caveat below
     [switch]$CaptureFixture,           # persist redacted before/after fixtures for the Graph oracle
+    [int]$VerifyCount = 5,             # individually verified before the bulk starts
+    [int]$MaxErrors = 10,              # hard abort
+    [double]$MaxErrorRate = 0.01,      # 1% once the sample is meaningful
+    [switch]$Retry,                    # accept an already-clean before-state (re-run)
     [string]$OutputDirectory = (Join-Path $PSScriptRoot 'evidence')
 )
 
@@ -190,7 +194,26 @@ $candidates | Select-Object FolderPath, PolicyTagRetentionId, RetentionPeriod, R
 
 $result = Invoke-MrmFolderUntag -Service $service -Census $scope -TargetRetentionId $tgt `
             -Apply:$Apply -SnapshotDirectory $OutputDirectory -LogPath $log `
-            -WhatIf:$WhatIfPreference -Confirm:$false
+            -VerifyCount $VerifyCount -MaxErrors $MaxErrors -MaxErrorRate $MaxErrorRate `
+            -Retry:$Retry -WhatIf:$WhatIfPreference -Confirm:$false
+
+if ($Apply) {
+    Write-Host ''
+    Write-Host '=============================== RESULT ==============================='
+    Write-Host (" verified+bulk succeeded : {0}" -f $result.Changed.Count) -ForegroundColor Green
+    Write-Host (" failed                  : {0}" -f $result.Failed.Count)  -ForegroundColor $(if ($result.Failed.Count) { 'Red' } else { 'Green' })
+    if ($result.Failed.Count -gt 0) {
+        Write-Host (" failure log             : {0}" -f $result.FailureLog) -ForegroundColor Red
+        $result.Failed | Group-Object Reason | Sort-Object Count -Descending |
+            Select-Object -First 5 Count, Name | Format-Table -AutoSize | Out-String | Write-Host
+    }
+    if ($result.Aborted) {
+        Write-Host (" ABORTED: {0}" -f $result.Aborted) -ForegroundColor Red
+        Write-Host ' Nothing further was attempted. Fix the cause, then re-run with -Retry' -ForegroundColor Red
+        Write-Host ' so already-cleaned folders are not treated as unproven.' -ForegroundColor Red
+    }
+    Write-Host '====================================================================='
+}
 
 if ($Apply -and $result.Changed.Count -gt 0) {
     # Post-change verification pass + child inheritance check
