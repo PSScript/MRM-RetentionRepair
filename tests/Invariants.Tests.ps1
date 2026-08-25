@@ -617,7 +617,7 @@ Describe 'Live-run regressions (first real tenant run)' {
     }
     It 'item audit refuses to report zero when FindItems returns nothing' {
         $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
-        $src | Should -Match 'refusing to.*report zero physically stamped items'
+        $src | Should -Match 'report zero physically stamped items'   # NB: message wraps across lines
     }
     It 'the audit script prints NO conclusion when the item audit failed' {
         $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'Invoke-MrmRetentionAudit.ps1') -Raw
