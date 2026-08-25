@@ -130,7 +130,25 @@ if ($IncludeItemAudit) {
         Write-MrmLog -LogPath $log -Level Warning -Message 'No physically target-stamped folders; item audit will sample ALL folders with items (bounded).'
         $affected = @($census | Where-Object { $_.ItemCount -gt 0 })
     }
-    $items = Get-MrmItemAudit -Service $service -Folders $affected -MaxItemsPerFolder $MaxItemsPerFolder -IncludeSubjects:$IncludeSubjects
+    $items = $null
+    $itemAuditError = $null
+    try {
+        $items = @(Get-MrmItemAudit -Service $service -Folders $affected -MaxItemsPerFolder $MaxItemsPerFolder -IncludeSubjects:$IncludeSubjects)
+    }
+    catch {
+        $itemAuditError = $_.Exception.Message
+        Write-MrmLog -LogPath $log -Level Error -Message "Gate 4 FAILED: item audit did not complete - $itemAuditError"
+    }
+    if ($itemAuditError) {
+        Write-Host ''
+        Write-Host ' Item-level physical audit: FAILED - NO CONCLUSION POSSIBLE' -ForegroundColor Red
+        Write-Host "   $itemAuditError" -ForegroundColor Red
+        Write-Host '   Do NOT read this as "no item stamps". Re-run the item audit before'  -ForegroundColor Red
+        Write-Host '   making any decision about restored items.' -ForegroundColor Red
+        Write-Host ''
+        Write-Host "Evidence directory: ${OutputDirectory}"
+        return
+    }
     if ($items) { Export-MrmEvidence -Records $items -OutputDirectory $OutputDirectory -BaseName 'item-audit' | Out-Null }
 
     $itemTarget = @($items | Where-Object { $_.PolicyTagRetentionId -eq $tgt })

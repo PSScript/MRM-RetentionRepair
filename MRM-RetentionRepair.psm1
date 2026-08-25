@@ -973,6 +973,9 @@ function Get-MrmCensusSummary {
     $physicalOther  = @($physicalAll | Where-Object { $_.PolicyTagRetentionId -ne $tgt })
     $existsCount    = @($Census | Where-Object ExistsFilterHit).Count
 
+    # NB: 0 means "not supplied" here. Treating a literal 0 as a real external
+    # count produced a bogus "RESULT C" on the first live run.
+    if ($KnownEffectiveCount -eq 0) { $KnownEffectiveCount = $null }
     $conclusion =
         if ($null -eq $KnownEffectiveCount) {
             "Physical target stamps: $($physicalTarget.Count). No external effective count supplied for comparison."
@@ -1039,6 +1042,15 @@ function Get-MrmItemAudit {
         $collected = 0
         do {
             $page = Invoke-MrmEwsWithRetry { $Service.FindItems($fid, $existsItemTag, $view) }
+            if ($null -eq $page) {
+                throw ("EWS FindItems returned nothing for '$($folder.FolderPath)'. " +
+                       "This is an API/permission problem, NOT an empty folder - refusing to " +
+                       "report zero physically stamped items.")
+            }
+            if (-not $page.PSObject.Properties['Items']) {
+                throw ("EWS FindItems returned an unexpected object type " +
+                       "($($page.GetType().FullName)) for '$($folder.FolderPath)'.")
+            }
             foreach ($item in $page.Items) {
                 $raw = $null; $per = $null; $flg = $null
                 [void]$item.TryGetProperty($props.PolicyTag,       [ref]$raw)

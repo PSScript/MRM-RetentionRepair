@@ -602,3 +602,26 @@ Describe 'Poisoned AppDomain detection (assembly already loaded but unusable)' {
         $src | Should -Match 'Import-Module -Name \$c -ErrorAction Stop -DisableNameChecking'
     }
 }
+
+Describe 'Live-run regressions (first real tenant run)' {
+    It 'treats KnownEffectiveCount 0 as "not supplied", not as a real zero' {
+        # First live run reported a bogus RESULT C because the config still had
+        # KnownEffectiveCount = 0 from the template.
+        $c = 1..261 | ForEach-Object {
+            [pscustomobject]@{ FolderPath="/F$_"; HasPhysicalPolicyTag=$true
+                               PolicyTagRetentionId=$Target; ExistsFilterHit=$true } }
+        (Get-MrmCensusSummary -Census $c -TargetRetentionId $Target -KnownEffectiveCount 0).Conclusion |
+            Should -Match 'No external effective count supplied'
+        (Get-MrmCensusSummary -Census $c -TargetRetentionId $Target -KnownEffectiveCount 261).Conclusion |
+            Should -Match 'RESULT B-shaped'
+    }
+    It 'item audit refuses to report zero when FindItems returns nothing' {
+        $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
+        $src | Should -Match 'refusing to.*report zero physically stamped items'
+    }
+    It 'the audit script prints NO conclusion when the item audit failed' {
+        $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'Invoke-MrmRetentionAudit.ps1') -Raw
+        $src | Should -Match 'FAILED - NO CONCLUSION POSSIBLE'
+        $src | Should -Match 'Do NOT read this as "no item stamps"'
+    }
+}
