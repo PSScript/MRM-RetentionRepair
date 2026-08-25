@@ -75,7 +75,7 @@ Outputs per-mailbox JSON, a consolidated CSV and a tenant rollup (RetentionIds x
 **Tenant repair** (nulling the tag across mailboxes — deliberately slow learning curve):
 mailbox mode 1 = one user / comma-separated / array (`-Mailbox 'a@c.com,b@c.com'`), mode 2 = `-AllMailboxes` (raw Graph discovery, no Mg).
 Stages: DryRun (default, zero writes) -> `-TestRun` (writes, capped to 1 mailbox x 1 folder by default) -> `-Apply` (full). `-TestRun` and `-Apply` are mutually exclusive.
-Every mutation runs READ -> BACKUP (JSONL) -> SET (native PolicyTag=null) -> READ -> COMPARE (Verified); an unexpected post-write state stops that mailbox. Pre/post censuses + backups per mailbox under evidence/tenant-repair/<mbx>/.
+Per-mailbox safety net under `evidence/tenant-repair/logging/<mbx>/`: a complete tag-state backup (`backup-tagstate-*.json`, schema `mrm-tagstate-backup/1`) is written AND read back before any write — fail-closed: no verified backup, no writes in that mailbox. Every mutation additionally runs READ -> BACKUP (JSONL) -> SET (native PolicyTag=null) -> READ -> COMPARE (Verified); an unexpected post-write state stops that mailbox. Pre/post censuses + backups per mailbox under evidence/tenant-repair/<mbx>/.
 
 Run tests:  pwsh -c "Invoke-Pester -Path ./tests"
 Start here: docs/RUNBOOK.md

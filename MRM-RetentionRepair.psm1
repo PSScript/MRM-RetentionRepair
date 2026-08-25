@@ -302,6 +302,73 @@ function Get-MrmTenantTagRollup {
 
 #endregion
 
+#region Tag-state backup (per-mailbox JSON safety net, fail-closed)
+
+function Export-MrmTagStateBackup {
+    <# Writes the per-mailbox SAFETY NET: one JSON file containing the complete
+       physical tag state (delete AND archive stamps) of every stamped folder,
+       plus a manifest header. This is the restore source — everything needed
+       to re-stamp a folder by hand (FolderId, RetentionId, period, flags) is
+       in here. Returns the file path. #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$Mailbox,
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Census,
+        [Parameter(Mandatory)][string]$Directory,
+        [string]$TargetRetentionId
+    )
+    New-Item -ItemType Directory -Force -Path $Directory | Out-Null
+    $stamped = @($Census | Where-Object {
+        ($_.PSObject.Properties['PolicyTagRetentionId']  -and $_.PolicyTagRetentionId) -or
+        ($_.PSObject.Properties['ArchiveTagRetentionId'] -and $_.ArchiveTagRetentionId) })
+    # never overwrite an earlier backup: millisecond stamp + collision suffix
+    $path = Join-Path $Directory ("backup-tagstate-{0:yyyyMMdd-HHmmss-fff}.json" -f (Get-Date))
+    $i = 1
+    while (Test-Path $path) {
+        $path = Join-Path $Directory ("backup-tagstate-{0:yyyyMMdd-HHmmss-fff}-{1}.json" -f (Get-Date), $i)
+        $i++
+    }
+    [ordered]@{
+        Schema            = 'mrm-tagstate-backup/1'
+        Mailbox           = $Mailbox
+        CapturedUtc       = [DateTime]::UtcNow.ToString('o')
+        TargetRetentionId = $TargetRetentionId
+        FoldersTotal      = @($Census).Count
+        FoldersStamped    = $stamped.Count
+        RestoreHint       = 'Re-stamp manually via EWS: $f.PolicyTag = [Microsoft.Exchange.WebServices.Data.PolicyTag]::new($true,[Guid]"<RetentionId>"); $f.Update() — deliberately not automated.'
+        Folders           = $stamped
+    } | ConvertTo-Json -Depth 8 | Set-Content -Path $path -Encoding UTF8
+    return $path
+}
+
+function Test-MrmTagStateBackup {
+    <# Fail-closed gate: re-reads the backup from disk and validates schema,
+       mailbox and folder count. Only a $true from THIS function clears a
+       mailbox for writes. #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Mailbox,
+        [Parameter(Mandatory)][int]$ExpectedStampedCount
+    )
+    if (-not (Test-Path $Path)) { Write-MrmLog -Level Error -Message "Backup missing on disk: ${Path}"; return $false }
+    try   { $b = Get-Content $Path -Raw -Encoding UTF8 | ConvertFrom-Json }
+    catch { Write-MrmLog -Level Error -Message "Backup unreadable: ${Path} — $($_.Exception.Message)"; return $false }
+    foreach ($chk in @(
+        @{ ok = ($b.PSObject.Properties['Schema'] -and $b.Schema -eq 'mrm-tagstate-backup/1'); msg = 'schema mismatch' },
+        @{ ok = ($b.PSObject.Properties['Mailbox'] -and $b.Mailbox -eq $Mailbox);              msg = 'mailbox mismatch' },
+        @{ ok = ($b.PSObject.Properties['FoldersStamped'] -and [int]$b.FoldersStamped -eq $ExpectedStampedCount); msg = 'stamped-count mismatch' },
+        @{ ok = ($ExpectedStampedCount -eq 0 -or @($b.Folders).Count -eq $ExpectedStampedCount); msg = 'folder-array count mismatch' }
+    )) {
+        if (-not $chk.ok) { Write-MrmLog -Level Error -Message "Backup validation failed (${Path}): $($chk.msg)"; return $false }
+    }
+    return $true
+}
+
+#endregion
+
 #region Config (JSON, DPAPI secret handling — tokenhandler/Resend-GraphReplay ergonomics)
 
 function Protect-MrmSecretString {
@@ -1249,6 +1316,6 @@ Export-ModuleMember -Function @(
     'Get-MrmEwsPropertyDefinitions','Get-MrmFolderCensus','ConvertTo-MrmCensusRecord',
     'Get-MrmCensusSummary','Get-MrmItemAudit','Invoke-MrmEwsWithRetry',
     'Get-MrmFolderRawState','Invoke-MrmFolderUntag','Export-MrmEvidence',
-    'Invoke-MrmGraphRequest','Invoke-MrmGraphCall','Protect-MrmSecretString','Unprotect-MrmSecretString','Get-MrmConfig','Resolve-MrmEffectiveSetting','ConvertTo-MrmSafeFileName','Get-MrmGraphMailboxList','Get-MrmTenantTagRollup','Split-MrmMailboxList','Get-MrmGraphFolderCensus','ConvertTo-MrmGraphCensusRecord',
+    'Invoke-MrmGraphRequest','Invoke-MrmGraphCall','Protect-MrmSecretString','Unprotect-MrmSecretString','Get-MrmConfig','Resolve-MrmEffectiveSetting','ConvertTo-MrmSafeFileName','Get-MrmGraphMailboxList','Get-MrmTenantTagRollup','Split-MrmMailboxList','Export-MrmTagStateBackup','Test-MrmTagStateBackup','Get-MrmGraphFolderCensus','ConvertTo-MrmGraphCensusRecord',
     'Compare-MrmCensusParity','Get-MrmGraphItemAudit','Invoke-MrmGraphWriteProbe'
 )

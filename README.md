@@ -121,6 +121,15 @@ Lernkurve, Erfahrungen sammeln vor der Breite):
        ./Invoke-MrmTenantTagRepair.ps1 -ConfigPath ./configs/TENANT-A.json `
            -AllMailboxes -TargetRetentionId d94993b5-... -Apply
 
+   **Safety-Net pro Postfach:** unter `evidence/tenant-repair/logging/<mbx>/`
+   liegt vor jedem Write ein vollständiges Tag-State-Backup
+   (`backup-tagstate-*.json`, Schema `mrm-tagstate-backup/1`) mit allem, was
+   ein manuelles Re-Stamping braucht (FolderId, RetentionId, Periode, Flags) —
+   **fail-closed**: das Backup wird nach dem Schreiben rückgelesen und
+   validiert (Schema, Mailbox, Ordnerzahl); ohne verifiziertes Backup schreibt
+   das Tool in diesem Postfach nicht. Dazu Pre-/Post-Zensus und die
+   JSONL-Before/After-Paare jeder Mutation im selben Ordner.
+
    -TestRun und -Apply schließen sich aus; jede Mutation prüft live vor dem
    Write (Exact-Match-Invariante), sichert den Vorzustand als JSONL, liest nach
    und vergleicht (Verified). Unerwarteter Nachzustand stoppt das Postfach.

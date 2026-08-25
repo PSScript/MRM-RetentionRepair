@@ -176,7 +176,7 @@ foreach ($m in $targets) {
     $done++
     Write-Progress -Activity "Tenant tag repair (${runMode})" -Status $m -PercentComplete (100*$done/$targets.Count)
     $stem = ConvertTo-MrmSafeFileName -Name $m
-    $mbxDir = Join-Path $OutputDirectory $stem
+    $mbxDir = Join-Path (Join-Path $OutputDirectory 'logging') $stem
     New-Item -ItemType Directory -Force -Path $mbxDir | Out-Null
     try {
         $token   = Get-RepairToken -Scope 'https://outlook.office365.com/.default'
@@ -185,6 +185,22 @@ foreach ($m in $targets) {
         # READ #1 — full census, persisted as the pre-state backup for this mailbox
         $census = Get-MrmFolderCensus -Service $service
         Export-MrmEvidence -Records $census -OutputDirectory $mbxDir -BaseName 'pre-census' | Out-Null
+
+        # SAFETY NET (fail-closed): complete per-mailbox tag-state backup JSON,
+        # written AND read back before any write. No verified backup => no writes
+        # for this mailbox.
+        $stampedCount = @($census | Where-Object {
+            ($_.PSObject.Properties['PolicyTagRetentionId']  -and $_.PolicyTagRetentionId) -or
+            ($_.PSObject.Properties['ArchiveTagRetentionId'] -and $_.ArchiveTagRetentionId) }).Count
+        $backupPath = Export-MrmTagStateBackup -Mailbox $m -Census $census -Directory $mbxDir -TargetRetentionId $tgt
+        if (-not (Test-MrmTagStateBackup -Path $backupPath -Mailbox $m -ExpectedStampedCount $stampedCount)) {
+            if ($runMode -ne 'DryRun') {
+                throw "SAFETY NET FAILED: tag-state backup not verifiable (${backupPath}) — refusing to write in this mailbox."
+            }
+            Write-MrmLog -LogPath $log -Level Warning -Message "Backup not verifiable (${backupPath}) — DryRun continues, but fix this before -TestRun/-Apply."
+        } else {
+            Write-MrmLog -LogPath $log -Level Info -Message "Safety-net backup verified: ${backupPath} (${stampedCount} stamped folder(s))."
+        }
 
         if ($runMode -eq 'DryRun') {
             $r = Invoke-MrmFolderUntag -Service $service -Census $census -TargetRetentionId $tgt `

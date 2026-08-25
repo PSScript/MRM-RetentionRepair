@@ -393,3 +393,41 @@ Describe 'Tenant repair ergonomics (modes, mailbox splitting, evidence cell)' {
         ((-not $bad.HasPhysicalPolicyTag) -and ($null -eq $bad.PolicyTagFirstClass)) | Should -BeFalse
     }
 }
+
+Describe 'Per-mailbox tag-state backup — the fail-closed safety net' {
+    BeforeAll {
+        $script:BackupCensus = @(
+            [pscustomobject]@{ FolderPath='/A'; FolderId='id-a'; HasPhysicalPolicyTag=$true;  PolicyTagRetentionId=$Target; RetentionPeriod=180; RetentionFlagsRaw=8; RetentionFlagsDecoded='PersonalTag'; ArchiveTagRetentionId=$null }
+            [pscustomobject]@{ FolderPath='/B'; FolderId='id-b'; HasPhysicalPolicyTag=$false; PolicyTagRetentionId=$null;   RetentionPeriod=$null; RetentionFlagsRaw=$null; RetentionFlagsDecoded=$null; ArchiveTagRetentionId='99999999-8888-7777-6666-555555555555' }
+            [pscustomobject]@{ FolderPath='/C'; FolderId='id-c'; HasPhysicalPolicyTag=$false; PolicyTagRetentionId=$null;   RetentionPeriod=$null; RetentionFlagsRaw=$null; RetentionFlagsDecoded=$null; ArchiveTagRetentionId=$null }
+        )
+        $script:BkDir = Join-Path ([IO.Path]::GetTempPath()) "mrmbk-$([guid]::NewGuid())"
+    }
+    AfterAll { Remove-Item $script:BkDir -Recurse -Force -ErrorAction SilentlyContinue }
+
+    It 'writes a backup containing ONLY stamped folders (delete OR archive) plus manifest, and validates it' {
+        $p = Export-MrmTagStateBackup -Mailbox 'user@contoso.com' -Census $BackupCensus -Directory $BkDir -TargetRetentionId $Target
+        Test-Path $p | Should -BeTrue
+        $b = Get-Content $p -Raw | ConvertFrom-Json
+        $b.Schema | Should -Be 'mrm-tagstate-backup/1'
+        $b.FoldersTotal | Should -Be 3
+        $b.FoldersStamped | Should -Be 2
+        @($b.Folders).FolderPath | Should -Be @('/A','/B')
+        # restore-relevant fields survive the roundtrip:
+        @($b.Folders)[0].RetentionPeriod | Should -Be 180
+        @($b.Folders)[0].RetentionFlagsRaw | Should -Be 8
+        Test-MrmTagStateBackup -Path $p -Mailbox 'user@contoso.com' -ExpectedStampedCount 2 | Should -BeTrue
+    }
+    It 'fails closed on mailbox mismatch, count mismatch, and unreadable file' {
+        $p = Export-MrmTagStateBackup -Mailbox 'user@contoso.com' -Census $BackupCensus -Directory $BkDir -TargetRetentionId $Target
+        Test-MrmTagStateBackup -Path $p -Mailbox 'other@contoso.com' -ExpectedStampedCount 2 | Should -BeFalse
+        Test-MrmTagStateBackup -Path $p -Mailbox 'user@contoso.com' -ExpectedStampedCount 5 | Should -BeFalse
+        $broken = Join-Path $BkDir 'broken.json'; Set-Content $broken '{not json' -Encoding UTF8
+        Test-MrmTagStateBackup -Path $broken -Mailbox 'user@contoso.com' -ExpectedStampedCount 2 | Should -BeFalse
+        Test-MrmTagStateBackup -Path (Join-Path $BkDir 'missing.json') -Mailbox 'u' -ExpectedStampedCount 0 | Should -BeFalse
+    }
+    It 'an empty (untagged) mailbox still produces a valid zero-folder backup' {
+        $p = Export-MrmTagStateBackup -Mailbox 'clean@contoso.com' -Census @() -Directory $BkDir -TargetRetentionId $Target
+        Test-MrmTagStateBackup -Path $p -Mailbox 'clean@contoso.com' -ExpectedStampedCount 0 | Should -BeTrue
+    }
+}

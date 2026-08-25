@@ -124,6 +124,11 @@ why item repair is a separate, evidence-gated decision, not an automatic path.
   snapshots. Therefore every write path (a) re-captures live state immediately
   before mutating and (b) appends full before/after JSON to
   `evidence/untag-changes-*.jsonl`. Keep that file.
+- Tenant runs add a per-mailbox safety net under
+  `evidence/tenant-repair/logging/<mbx>/backup-tagstate-*.json`
+  (schema `mrm-tagstate-backup/1`): the complete pre-write tag state of every
+  stamped folder, validated fail-closed before any write. This file is the
+  restore source.
 - To roll back manually, a folder can be re-stamped via EWS
   (`$folder.PolicyTag = [PolicyTag]::new($true,'<guid>')`) — deliberately NOT
   implemented in this tool to keep its mutation surface single-purpose.

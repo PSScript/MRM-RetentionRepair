@@ -80,7 +80,7 @@ if ($authMode -eq 'Config') {
 }
 
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
-$perMbxDir = Join-Path $OutputDirectory 'mailboxes'
+$perMbxDir = Join-Path $OutputDirectory 'logging'
 New-Item -ItemType Directory -Force -Path $perMbxDir | Out-Null
 $log = Join-Path $OutputDirectory 'tenant-report.log'
 
