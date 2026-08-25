@@ -1081,6 +1081,18 @@ function Get-MrmItemAudit {
                 throw ("EWS FindItems returned an unexpected object type " +
                        "($($page.GetType().FullName)) for '$($folder.FolderPath)'.")
             }
+            # CRITICAL: FindItems does NOT reliably return extended properties.
+            # On the live run 0x301A/0x301D/0x301C all came back empty here while
+            # a direct Bind returned 0x301C fine. LoadPropertiesForItems fetches
+            # them for the whole page in ONE round trip - do not skip this.
+            if ($page.Items.Count -gt 0) {
+                try { [void]$Service.LoadPropertiesForItems($page.Items, $ps) }
+                catch {
+                    throw ("LoadPropertiesForItems failed for '$($folder.FolderPath)': " +
+                           "$($_.Exception.Message). Without it the retention properties " +
+                           "would be silently empty - refusing to produce a misleading audit.")
+                }
+            }
             foreach ($item in $page.Items) {
                 $raw = $null; $per = $null; $flg = $null; $rdate = $null
                 [void]$item.TryGetProperty($props.PolicyTag,       [ref]$raw)
@@ -1146,9 +1158,14 @@ function Test-MrmItemPropertyFidelity {
             FindItems_FlagsRaw = $rec.RetentionFlagsRaw
             Bind_FlagsRaw      = $flg
             Bind_FlagsDecoded  = ConvertFrom-MrmRetentionFlags -Flags $flg
+            FindItems_RetDate  = $(if ($rec.PSObject.Properties['RetentionDate']) { $rec.RetentionDate } else { $null })
             Bind_RetentionDate = $rd
+            # NB: the first version of this check compared only Period and Flags.
+            # Both were empty on BOTH sides, so it reported agreement while the
+            # RetentionDate - the one property that mattered - silently differed.
             PropsAgree         = (($rec.RetentionPeriod   -as [string]) -eq ($per -as [string])) -and
-                                 (($rec.RetentionFlagsRaw -as [string]) -eq ($flg -as [string]))
+                                 (($rec.RetentionFlagsRaw -as [string]) -eq ($flg -as [string])) -and
+                                 (($(if ($rec.PSObject.Properties['RetentionDate']) { $rec.RetentionDate }) -as [string]) -eq ($rd -as [string]))
         })
     }
     return $out

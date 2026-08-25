@@ -693,3 +693,21 @@ Describe 'Item property fidelity and RetentionDate' {
         $src | Should -Match '\$ps\.Add\(\$props\.RetentionFlags\); \$ps\.Add\(\$props\.RetentionDate\)'
     }
 }
+
+Describe 'Extended properties must be loaded, not hoped for' {
+    It 'batch-loads properties after FindItems instead of trusting the search result' {
+        $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
+        $src | Should -Match 'LoadPropertiesForItems\(\$page\.Items, \$ps\)'
+        $src | Should -Match 'FindItems does NOT reliably return extended properties'
+    }
+    It 'the fidelity check compares RetentionDate too (it did not, and reported false agreement)' {
+        $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
+        $src | Should -Match 'FindItems_RetDate'
+        $src | Should -Match 'compared only Period and Flags'
+    }
+    It 'the audit classifies items by RetentionDate against now' {
+        $audit = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'Invoke-MrmRetentionAudit.ps1') -Raw
+        $audit | Should -Match 'ALREADY OVERDUE'
+        $audit | Should -Match 'No RetentionDate on ANY item'
+    }
+}

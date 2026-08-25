@@ -181,6 +181,31 @@ if ($IncludeItemAudit) {
         }
     }
 
+    # Urgency: PidTagRetentionDate is the date MFA would delete the item. Items
+    # whose date has passed are deleted at the very next ELC run.
+    $now = Get-Date
+    $withDate = @($items | Where-Object { $_.RetentionDate })
+    if ($withDate.Count -gt 0) {
+        $overdue = @($withDate | Where-Object { [datetime]$_.RetentionDate -lt $now })
+        $soon    = @($withDate | Where-Object { [datetime]$_.RetentionDate -ge $now -and [datetime]$_.RetentionDate -lt $now.AddDays(30) })
+        $later   = @($withDate | Where-Object { [datetime]$_.RetentionDate -ge $now.AddDays(30) })
+        Write-Host ''
+        Write-Host ' RetentionDate distribution (what happens when ELC resumes):'
+        Write-Host ("   ALREADY OVERDUE (deleted at next MFA run): {0}" -f $overdue.Count) -ForegroundColor $(if ($overdue.Count) { 'Red' } else { 'Green' })
+        Write-Host ("   due within 30 days                       : {0}" -f $soon.Count)   -ForegroundColor Yellow
+        Write-Host ("   due later                                : {0}" -f $later.Count)
+        if ($overdue.Count -gt 0) {
+            $oldest = ($overdue | Sort-Object { [datetime]$_.RetentionDate } | Select-Object -First 1)
+            Write-Host ("   oldest overdue date: {0}" -f $oldest.RetentionDate)
+        }
+        Write-MrmLog -LogPath $log -Level Info -Message "RetentionDate: overdue=$($overdue.Count) soon=$($soon.Count) later=$($later.Count)"
+    }
+    else {
+        Write-Host ''
+        Write-Host ' No RetentionDate on ANY item - that is unexpected for MFA-processed items.' -ForegroundColor Yellow
+        Write-Host ' Do not read it as "no expiry"; verify with the fidelity table above.'      -ForegroundColor Yellow
+    }
+
     $itemTarget = @($items | Where-Object { $_.PolicyTagRetentionId -eq $tgt })
     $dist = $items | Group-Object PolicyTagRetentionId | Sort-Object Count -Descending |
             Select-Object @{n='RetentionId';e={$_.Name}}, Count
