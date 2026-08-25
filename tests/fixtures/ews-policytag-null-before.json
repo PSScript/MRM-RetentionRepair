@@ -1,0 +1,16 @@
+{
+  "_comment": "PLACEHOLDER — replaced by the Gate-5 live pilot (-CaptureFixture). Schema of the redacted capture:",
+  "FolderPath": "/REDACTED/ProjectB",
+  "DisplayName": "REDACTED",
+  "FolderId": "REDACTED-EWSID",
+  "ParentFolderId": "REDACTED",
+  "HasPhysicalPolicyTag": true,
+  "PolicyTagRetentionId": "d94993b5-e987-4275-8707-072057cfb2b8",
+  "PolicyTagFirstClass": "d94993b5-e987-4275-8707-072057cfb2b8",
+  "RetentionPeriod": 180,
+  "RetentionFlagsRaw": 8,
+  "RetentionFlagsDecoded": "PersonalTag",
+  "HasPhysicalArchiveTag": false,
+  "ArchiveTagRetentionId": null,
+  "CapturedUtc": "LIVE-CAPTURE-PENDING"
+}

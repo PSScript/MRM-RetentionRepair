@@ -1,0 +1,11 @@
+{
+  "_comment": "PLACEHOLDER — replaced by the Gate-5 live pilot. What EWS PolicyTag=null ACTUALLY does to 0x3019/0x301A/0x301D is captured here, not assumed. This file is the Graph 2B success contract.",
+  "FolderPath": "/REDACTED/ProjectB",
+  "DisplayName": "REDACTED",
+  "FolderId": "REDACTED-EWSID",
+  "HasPhysicalPolicyTag": "LIVE-CAPTURE-PENDING (expected false)",
+  "PolicyTagRetentionId": "LIVE-CAPTURE-PENDING (expected null)",
+  "RetentionPeriod": "LIVE-CAPTURE-PENDING (0x301A after native update — hypothesis only)",
+  "RetentionFlagsRaw": "LIVE-CAPTURE-PENDING (0x301D after native update — hypothesis only)",
+  "CapturedUtc": "LIVE-CAPTURE-PENDING"
+}
