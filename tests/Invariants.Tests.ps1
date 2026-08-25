@@ -582,3 +582,23 @@ Describe 'Companion assembly handling (Auth.dll)' {
         $src | Should -Match "Microsoft\.Exchange\.WebServices\.Auth\.dll"
     }
 }
+
+Describe 'Poisoned AppDomain detection (assembly already loaded but unusable)' {
+    It 'refuses with a restart-the-session message instead of silently continuing' {
+        # A byte-loaded assembly cannot be unloaded; the early-return used to
+        # accept it and every ExchangeService ctor then threw further downstream.
+        $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
+        $src | Should -Match 'UNUSABLE Microsoft\.Exchange\.WebServices assembly is already loaded'
+        $src | Should -Match 'close this PowerShell window'
+    }
+    It 'verifies the loaded assembly is CONSTRUCTIBLE, not merely present' {
+        $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
+        # the early-return must be guarded by a ctor probe
+        $src | Should -Match '\$usable = \$false'
+        $src | Should -Match 'if \(\$usable\) \{ return \}'
+    }
+    It 'offers Import-Module as an additional file-based load route' {
+        $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
+        $src | Should -Match 'Import-Module -Name \$c -ErrorAction Stop -DisableNameChecking'
+    }
+}

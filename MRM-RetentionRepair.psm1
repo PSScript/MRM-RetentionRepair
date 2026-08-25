@@ -664,7 +664,34 @@ function Install-MrmEwsManagedApi {
 function Import-MrmEwsAssembly {
     [CmdletBinding()]
     param([string]$Path)
-    if ('Microsoft.Exchange.WebServices.Data.ExchangeService' -as [type]) { return }
+
+    # Already loaded in THIS AppDomain? Then verify it is actually usable.
+    # An assembly loaded from a byte[] has Location = '' and its
+    # ExchangeServiceBase type initializer throws on first use - and it can
+    # NEVER be unloaded, so the only cure is a fresh PowerShell session.
+    $existing = 'Microsoft.Exchange.WebServices.Data.ExchangeService' -as [type]
+    if ($existing) {
+        $loc = ''
+        try { $loc = $existing.Assembly.Location } catch { }
+        $usable = $false
+        try {
+            $null = [Microsoft.Exchange.WebServices.Data.ExchangeService]::new(
+                [Microsoft.Exchange.WebServices.Data.ExchangeVersion]::Exchange2013_SP1)
+            $usable = $true
+        } catch { $usable = $false }
+
+        if ($usable) { return }
+
+        throw (@(
+            "An UNUSABLE Microsoft.Exchange.WebServices assembly is already loaded in this PowerShell session.",
+            "  Assembly.Location : '${loc}'  (empty = loaded from memory, not from a file)",
+            "  ExchangeService   : constructor throws (ExchangeServiceBase type initializer)",
+            "A .NET assembly cannot be unloaded from a running process, so this session is",
+            "permanently poisoned - most likely by an earlier failed load attempt.",
+            "FIX: close this PowerShell window, open a NEW one, and re-run. The assembly",
+            "will then be loaded from a real file path."
+        ) -join [Environment]::NewLine)
+    }
     if (-not $Path) {
         # Single source of truth for the search order (MSI > ProgramData >
         # LocalAppData > repo lib). A stale hardcoded list here previously put
@@ -712,6 +739,18 @@ function Import-MrmEwsAssembly {
             if ($typeName -as [type]) {
                 Write-MrmLog -Level Warning -Message "Loading was blocked for ${c}; loaded a clean shadow copy from ${copy} instead."
                 $Path = $copy
+                break
+            }
+        } catch { $lastErr = $_ }
+
+        # Third file-based route: load it as a binary module. Import-Module uses
+        # Assembly.LoadFrom, a different load context than Add-Type's
+        # LoadFile - some hosts accept one and reject the other.
+        try {
+            Import-Module -Name $c -ErrorAction Stop -DisableNameChecking
+            if ($typeName -as [type]) {
+                Write-MrmLog -Level Warning -Message "Add-Type did not work for ${c}; loaded it as a binary module (Import-Module) instead."
+                $Path = $c
                 break
             }
         } catch { $lastErr = $_ }
