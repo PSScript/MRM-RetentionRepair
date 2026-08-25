@@ -557,3 +557,28 @@ Describe 'Assembly search order has a single source of truth' {
         @($p.SearchOrder)[-1] | Should -Match 'lib[\\/]Microsoft\.Exchange\.WebServices\.dll$'
     }
 }
+
+Describe 'Companion assembly handling (Auth.dll)' {
+    It 'mirrors the whole directory into the shadow copy, not just the main DLL' {
+        # A shadow copy of only the main DLL would strip sibling assemblies
+        # (Microsoft.Exchange.WebServices.Auth.dll) out of the CLR probing path.
+        $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
+        $src | Should -Match "Copy-Item -Path \(Join-Path \(Split-Path \`$c -Parent\) '\*\.dll'\)"
+    }
+    It 'treats Auth.dll as optional - the main assembly does not statically reference it' {
+        Import-MrmEwsAssembly
+        $asm = [Microsoft.Exchange.WebServices.Data.ExchangeService].Assembly
+        @($asm.GetReferencedAssemblies() | ForEach-Object { $_.Name }) |
+            Should -Not -Contain 'Microsoft.Exchange.WebServices.Auth'
+        # ...and the types we actually use all live in the main assembly:
+        foreach ($t in @('Microsoft.Exchange.WebServices.Data.OAuthCredentials',
+                         'Microsoft.Exchange.WebServices.Data.ExchangeService',
+                         'Microsoft.Exchange.WebServices.Data.FolderSchema')) {
+            ($t -as [type]).Assembly.GetName().Name | Should -Be 'Microsoft.Exchange.WebServices'
+        }
+    }
+    It 'the installer fetches Auth.dll alongside the main DLL' {
+        $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
+        $src | Should -Match "Microsoft\.Exchange\.WebServices\.Auth\.dll"
+    }
+}

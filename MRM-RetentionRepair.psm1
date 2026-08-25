@@ -701,9 +701,13 @@ function Import-MrmEwsAssembly {
         try {
             $shadow = Join-Path ([IO.Path]::GetTempPath()) ("mrm-ews-" + [Guid]::NewGuid().ToString('n'))
             New-Item -ItemType Directory -Force -Path $shadow | Out-Null
+            # Mirror the WHOLE directory, not just the main DLL: sibling
+            # assemblies (Microsoft.Exchange.WebServices.Auth.dll) must stay
+            # next to it or the CLR cannot probe for them.
+            Copy-Item -Path (Join-Path (Split-Path $c -Parent) '*.dll') -Destination $shadow -Force
             $copy = Join-Path $shadow 'Microsoft.Exchange.WebServices.dll'
-            Copy-Item -LiteralPath $c -Destination $copy -Force
-            try { if (Get-Command Unblock-File -ErrorAction SilentlyContinue) { Unblock-File -Path $copy -ErrorAction SilentlyContinue } } catch { }
+            if (-not (Test-Path $copy)) { Copy-Item -LiteralPath $c -Destination $copy -Force }
+            try { if (Get-Command Unblock-File -ErrorAction SilentlyContinue) { Get-ChildItem (Join-Path $shadow '*.dll') | Unblock-File -ErrorAction SilentlyContinue } } catch { }
             Add-Type -Path $copy -ErrorAction Stop
             if ($typeName -as [type]) {
                 Write-MrmLog -Level Warning -Message "Loading was blocked for ${c}; loaded a clean shadow copy from ${copy} instead."
@@ -742,6 +746,19 @@ function Import-MrmEwsAssembly {
         throw ("EWS assembly loaded from ${Path} but ExchangeService could not be constructed: " +
                "$($_.Exception.Message). This usually means the assembly was loaded without a " +
                "file location. Run Install-MrmEwsManagedApi -Force and remove the repo-local copy.")
+    }
+    # Optional companion assembly. The main DLL does NOT statically reference it
+    # (verified via GetReferencedAssemblies), so this is best-effort only and a
+    # failure here must never break the load.
+    $auth = Join-Path (Split-Path $Path -Parent) 'Microsoft.Exchange.WebServices.Auth.dll'
+    if ((Test-Path $auth) -and -not ('Microsoft.Exchange.WebServices.Auth.Validation.AuthValidator' -as [type])) {
+        try {
+            if (Get-Command Unblock-File -ErrorAction SilentlyContinue) { Unblock-File -Path $auth -ErrorAction SilentlyContinue }
+            Add-Type -Path $auth -ErrorAction Stop
+            Write-MrmLog -Level Info -Message "Loaded companion assembly: ${auth}"
+        } catch {
+            Write-MrmLog -Level Debug -Message "Companion Auth.dll not loaded (not required): $($_.Exception.Message)"
+        }
     }
     Write-MrmLog -Level Info -Message "Loaded EWS Managed API from ${Path} (type resolved)."
 }
