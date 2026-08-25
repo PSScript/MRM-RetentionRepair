@@ -15,6 +15,10 @@ Default **nicht bewiesen**).
       Invoke-MrmGraphParity.ps1       Phase 2A/2B — tokenbasiert ("oldschool"):
                                        rohes client_credentials + Invoke-RestMethod,
                                        NULL Modul-Abhängigkeiten (tokenhandler-Stil)
+      Invoke-MrmTenantTagReport.ps1   Tenant-weiter READ-ONLY-Report physisch
+                                       gestempelter Retention-Tags über viele
+                                       Postfächer — modernisiertes ReportTagged.ps1
+                                       (gscales), bewusst ohne Mg-Modul
       Invoke-MrmGraphParity.Mg.ps1    Phase 2A/2B — Microsoft.Graph-SDK-Variante:
                                        Connect-MgGraph / Invoke-MgGraphRequest
                                        (braucht nur Microsoft.Graph.Authentication)
@@ -78,6 +82,22 @@ Anleitung (Quickstart)
            -ExperimentalWriteProbe -ProbeGraphFolderId <id> -IUnderstandThisIsAnExperiment
 
 Alle Gates, Reihenfolge (Restore VOR MFA!) und Rollback-Grenzen: [docs/RUNBOOK.md](docs/RUNBOOK.md).
+
+**Tenant-Report** (read-only, unabhängig von den Gates — z. B. "wo klebt dieses
+Tag noch überall?"):
+
+       # Postfachliste aus CSV, nur das Incident-Tag:
+       ./Invoke-MrmTenantTagReport.ps1 -ConfigPath ./configs/TENANT-A.json `
+           -MailboxCsv ./mailboxes.csv -FilterRetentionId d94993b5-e987-4275-8707-072057cfb2b8
+
+       # oder Discovery über rohes Graph-REST (App-Permission User.Read.All, kein Mg-Modul):
+       ./Invoke-MrmTenantTagReport.ps1 -ConfigPath ./configs/TENANT-A.json -DiscoverViaGraph -Resume
+
+   Liefert pro Postfach JSON, konsolidiertes CSV und ein Tenant-Rollup
+   (welche RetentionIds, wie viele Ordner/Postfächer, Perioden, Flags,
+   Beispielpfade). -Resume überspringt bereits gescannte Postfächer.
+   Wie im Original zählt nur der PHYSISCHE Stempel (Exists 0x3019/0x3018) —
+   rein vererbte Tags erscheinen bewusst nicht.
 
 Leitplanken
 -----------

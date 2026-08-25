@@ -74,8 +74,16 @@ den erzeugenden Benutzer auf der erzeugenden Maschine**. Erzeugen/rotieren mit
 | `MaxItemsPerFolder` | nein | Audit | Item-Audit-Deckel (Default 2000) |
 | `PilotFolderPath` | nein | Repair | Gate-5-Pilot auf genau einen Ordner beschränken |
 | `OutputDirectory` / `EvidenceDirectory` | nein | alle / Mg | Evidence-Ablage |
+| `MailboxCsv` | nein | TenantTagReport | CSV mit Spalte Mailbox/UserPrincipalName/PrimarySmtpAddress/Mail |
+| `ThrottleDelayMs` | nein | TenantTagReport | Pause zwischen Postfächern (Default 250) |
 
 Priorität überall: **CLI-Parameter > Config-Wert > Skript-Default.**
+
+### Zusätzliche App-Permission für den Tenant-Report
+
+`-DiscoverViaGraph` nutzt rohes Graph-REST (`GET /v1.0/users`) und braucht die
+Graph-**Application**-Permission `User.Read.All` (admin-consented) zusätzlich zu
+`full_access_as_app` (EWS). Ohne Discovery (CSV/-Mailbox) reicht EWS allein.
 
 ## Secret-Handling — Regeln
 

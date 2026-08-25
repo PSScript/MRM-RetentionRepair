@@ -317,3 +317,52 @@ Describe 'JSON config + secret handling (tokenhandler ergonomics)' {
         Resolve-MrmEffectiveSetting -BoundParameters @{} -Config $cfg -Name Missing | Should -BeNullOrEmpty
     }
 }
+
+Describe 'Tenant tag report helpers' {
+    It 'sanitizes UPNs into safe file stems' {
+        ConvertTo-MrmSafeFileName -Name 'user@contoso.com'        | Should -Be 'user_at_contoso.com'
+        ConvertTo-MrmSafeFileName -Name "Björn O'Hara@contoso.de" | Should -Match '^[A-Za-z0-9._\-]+$'
+    }
+    It 'discovers mail-enabled users via raw Graph paging and skips disabled/mailless' {
+        $p1 = [pscustomobject]@{
+            value = @(
+                [pscustomobject]@{ userPrincipalName='a@c.com'; mail='a@c.com'; accountEnabled=$true;  userType='Member' },
+                [pscustomobject]@{ userPrincipalName='nomail@c.com'; mail=$null; accountEnabled=$true; userType='Member' },
+                [pscustomobject]@{ userPrincipalName='off@c.com'; mail='off@c.com'; accountEnabled=$false; userType='Member' })
+            '@odata.nextLink' = 'https://graph.microsoft.com/v1.0/users-page-2'
+        }
+        $p2 = [pscustomobject]@{
+            value = @([pscustomobject]@{ userPrincipalName='b@c.com'; mail='b@c.com'; accountEnabled=$true; userType='Member' })
+        }
+        Mock -ModuleName MRM-RetentionRepair Invoke-MrmGraphRequest {
+            param($Uri)
+            if ($Uri -match 'users-page-2') { return $p2 } else { return $p1 }
+        }
+        $list = @(Get-MrmGraphMailboxList -TokenProvider { 'tok' })
+        @($list).Mail | Should -Be @('a@c.com','b@c.com')
+        $withOff = @(Get-MrmGraphMailboxList -TokenProvider { 'tok' } -IncludeDisabled)
+        @($withOff).Count | Should -Be 3
+    }
+    It 'rolls up delete AND archive stamps across mailboxes with the incident shape' {
+        $recs = @(
+            # 2 mailboxes, incident tag on 3 folders
+            [pscustomobject]@{ Mailbox='u1@c.com'; FolderPath='/A/1'; PolicyTagRetentionId=$Target; RetentionPeriod=180; RetentionFlagsDecoded='PersonalTag'; ArchiveTagRetentionId=$null }
+            [pscustomobject]@{ Mailbox='u1@c.com'; FolderPath='/A/2'; PolicyTagRetentionId=$Target; RetentionPeriod=180; RetentionFlagsDecoded='PersonalTag'; ArchiveTagRetentionId=$null }
+            [pscustomobject]@{ Mailbox='u2@c.com'; FolderPath='/B/1'; PolicyTagRetentionId=$Target; RetentionPeriod=180; RetentionFlagsDecoded='PersonalTag'; ArchiveTagRetentionId=$null }
+            # a different delete tag + an archive tag on the same folder
+            [pscustomobject]@{ Mailbox='u2@c.com'; FolderPath='/B/2'; PolicyTagRetentionId='11111111-2222-3333-4444-555555555555'; RetentionPeriod=365; RetentionFlagsDecoded='ExplicitTag|PersonalTag'; ArchiveTagRetentionId='99999999-8888-7777-6666-555555555555' }
+        )
+        $r = @(Get-MrmTenantTagRollup -Records $recs)
+        @($r).Count | Should -Be 3
+        $top = @($r)[0]
+        $top.Kind | Should -Be 'Delete'
+        $top.RetentionId | Should -Be $Target
+        $top.FolderCount | Should -Be 3
+        $top.MailboxCount | Should -Be 2
+        $top.PeriodsDays | Should -Be '180'
+        (@($r) | Where-Object Kind -eq 'Archive').RetentionId | Should -Be '99999999-8888-7777-6666-555555555555'
+    }
+    It 'returns an empty rollup for an untagged tenant without throwing (StrictMode)' {
+        @(Get-MrmTenantTagRollup -Records @()).Count | Should -Be 0
+    }
+}

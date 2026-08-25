@@ -202,6 +202,88 @@ function Test-MrmWriteAllowed {
 # OAuth (app-only) — client credentials, secret or certificate
 # ============================================================================
 
+#region Tenant report (multi-mailbox, read-only — improved ReportTagged.ps1)
+
+function ConvertTo-MrmSafeFileName {
+    <# UPN -> filesystem-safe stem (user@contoso.com -> user_at_contoso.com). #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Name)
+    $n = $Name.Replace('@','_at_')
+    return ([regex]::Replace($n, '[^A-Za-z0-9._\-]', '_'))
+}
+
+function Get-MrmGraphMailboxList {
+    <# Tenant mailbox discovery via RAW Graph REST (no Microsoft.Graph module):
+       GET /v1.0/users?$select=...&$top=999, follows @odata.nextLink, then
+       filters client-side to users that actually have a mailbox (mail set).
+       Requires Graph application permission User.Read.All (admin consented).
+       Cheap on purpose: no per-user calls, one page = up to 999 users. #>
+    [CmdletBinding()]
+    param(
+        [scriptblock]$TokenProvider,
+        [scriptblock]$RequestHandler,
+        [switch]$IncludeDisabled
+    )
+    $uri = 'https://graph.microsoft.com/v1.0/users?$select=userPrincipalName,mail,accountEnabled,userType&$top=999'
+    $out = [System.Collections.Generic.List[object]]::new()
+    while ($uri) {
+        $page = Invoke-MrmGraphCall -Uri $uri -TokenProvider $TokenProvider -RequestHandler $RequestHandler
+        foreach ($u in @($page.value)) {
+            $mail = if ($u.PSObject.Properties['mail']) { $u.mail } else { $null }
+            if (-not $mail) { continue }                                   # no mailbox
+            $enabled = -not $u.PSObject.Properties['accountEnabled'] -or [bool]$u.accountEnabled
+            if (-not $enabled -and -not $IncludeDisabled) { continue }
+            $out.Add([pscustomobject]@{
+                UserPrincipalName = $u.userPrincipalName
+                Mail              = $mail
+                AccountEnabled    = $enabled
+                UserType          = $(if ($u.PSObject.Properties['userType']) { $u.userType } else { $null })
+            })
+        }
+        $uri = if ($page.PSObject.Properties['@odata.nextLink']) { $page.'@odata.nextLink' } else { $null }
+    }
+    Write-MrmLog -Level Info -Message "Graph discovery: $($out.Count) mail-enabled users."
+    # plain emit (0..n objects) — callers use @(...); the ,-wrap trick nests
+    # empty arrays inside @(cmd) under some hosts (seen under Pester 6)
+    return $out
+}
+
+function Get-MrmTenantTagRollup {
+    <# Aggregates per-mailbox folder censuses into a tenant-wide view of every
+       PHYSICALLY stamped retention tag (delete AND archive), the core
+       physical-vs-effective distinction from gscales/ReportTagged.ps1 kept
+       intact. Pure function — fully unit-testable. #>
+    [CmdletBinding()]
+    param(
+        # records: census rows augmented with a Mailbox property
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Records
+    )
+    $rows = [System.Collections.Generic.List[object]]::new()
+    foreach ($kind in 'Delete','Archive') {
+        $idProp = if ($kind -eq 'Delete') { 'PolicyTagRetentionId' } else { 'ArchiveTagRetentionId' }
+        $tagged = @($Records | Where-Object { $_.PSObject.Properties[$idProp] -and $_.$idProp })
+        foreach ($g in ($tagged | Group-Object $idProp)) {
+            $mbx     = @($g.Group | ForEach-Object { $_.Mailbox } | Sort-Object -Unique)
+            $periods = @($g.Group | ForEach-Object { $_.RetentionPeriod } | Where-Object { $null -ne $_ } | Sort-Object -Unique)
+            $flags   = @($g.Group | ForEach-Object { $_.RetentionFlagsDecoded } | Where-Object { $_ } | Sort-Object -Unique)
+            $rows.Add([pscustomobject]@{
+                Kind             = $kind
+                RetentionId      = $g.Name
+                FolderCount      = $g.Count
+                MailboxCount     = $mbx.Count
+                Mailboxes        = ($mbx | Select-Object -First 10) -join ';'
+                PeriodsDays      = $periods -join ';'
+                FlagsSeen        = $flags -join ' | '
+                SamplePaths      = (@($g.Group | Select-Object -First 5 | ForEach-Object { $_.FolderPath }) -join ' ; ')
+            })
+        }
+    }
+    return @($rows | Sort-Object -Property @{e='FolderCount';Descending=$true})
+}
+
+#endregion
+
 #region Config (JSON, DPAPI secret handling — tokenhandler/Resend-GraphReplay ergonomics)
 
 function Protect-MrmSecretString {
@@ -1149,6 +1231,6 @@ Export-ModuleMember -Function @(
     'Get-MrmEwsPropertyDefinitions','Get-MrmFolderCensus','ConvertTo-MrmCensusRecord',
     'Get-MrmCensusSummary','Get-MrmItemAudit','Invoke-MrmEwsWithRetry',
     'Get-MrmFolderRawState','Invoke-MrmFolderUntag','Export-MrmEvidence',
-    'Invoke-MrmGraphRequest','Invoke-MrmGraphCall','Protect-MrmSecretString','Unprotect-MrmSecretString','Get-MrmConfig','Resolve-MrmEffectiveSetting','Get-MrmGraphFolderCensus','ConvertTo-MrmGraphCensusRecord',
+    'Invoke-MrmGraphRequest','Invoke-MrmGraphCall','Protect-MrmSecretString','Unprotect-MrmSecretString','Get-MrmConfig','Resolve-MrmEffectiveSetting','ConvertTo-MrmSafeFileName','Get-MrmGraphMailboxList','Get-MrmTenantTagRollup','Get-MrmGraphFolderCensus','ConvertTo-MrmGraphCensusRecord',
     'Compare-MrmCensusParity','Get-MrmGraphItemAudit','Invoke-MrmGraphWriteProbe'
 )

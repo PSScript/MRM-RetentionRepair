@@ -14,6 +14,10 @@ experiment gated & unproven by default).
       Invoke-MrmGraphParity.ps1       Phase 2A/2B — token-based ("oldschool"): raw
                                        client_credentials + Invoke-RestMethod,
                                        ZERO module dependencies (tokenhandler-style)
+      Invoke-MrmTenantTagReport.ps1   tenant-wide READ-ONLY report of physically
+                                       stamped retention tags across mailboxes —
+                                       modernized ReportTagged.ps1 (gscales),
+                                       deliberately without the Mg module
       Invoke-MrmGraphParity.Mg.ps1    Phase 2A/2B — Microsoft.Graph SDK variant:
                                        Connect-MgGraph / Invoke-MgGraphRequest
                                        (requires only Microsoft.Graph.Authentication)
@@ -57,6 +61,11 @@ Usage (quickstart)
 6. **Gate 8 — write experiment** (disposable folder, double-gated): add `-ExperimentalWriteProbe -ProbeGraphFolderId <id> -IUnderstandThisIsAnExperiment`
 
 Gates, ordering (restore BEFORE MFA!) and rollback limits: [docs/RUNBOOK.md](docs/RUNBOOK.md).
+
+**Tenant report** (read-only, independent of the gates):
+`./Invoke-MrmTenantTagReport.ps1 -ConfigPath ./configs/TENANT-A.json -MailboxCsv ./mailboxes.csv [-FilterRetentionId <guid>] [-Resume]`
+or discovery via raw Graph REST (app permission User.Read.All, no Mg module): add `-DiscoverViaGraph`.
+Outputs per-mailbox JSON, a consolidated CSV and a tenant rollup (RetentionIds x folders x mailboxes x periods x flags). Physical stamps only (Exists 0x3019/0x3018), as in the original.
 
 Run tests:  pwsh -c "Invoke-Pester -Path ./tests"
 Start here: docs/RUNBOOK.md
