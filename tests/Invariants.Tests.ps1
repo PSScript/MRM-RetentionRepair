@@ -880,3 +880,34 @@ Describe 'Audit run comparison' {
         (Get-Content $CmpScript -Raw) | Should -Match 'For ITEMS this means deleted'
     }
 }
+
+Describe 'EXO-side verification script' {
+    BeforeAll { $script:ExoScript = Join-Path (Join-Path $PSScriptRoot '..') 'Verify-MrmExoState.ps1' }
+
+    It 'parses' {
+        $errs = $null
+        [System.Management.Automation.Language.Parser]::ParseFile($ExoScript, [ref]$null, [ref]$errs) | Out-Null
+        $errs | Should -BeNullOrEmpty
+    }
+    It 'refuses to run without an Exchange Online session instead of failing obscurely' {
+        { & $ExoScript -Mailbox 'user@contoso.com' } | Should -Throw '*Connect-ExchangeOnline first*'
+    }
+    It 'is READ-ONLY: no Restore/Set/Start cmdlets are ever invoked' {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($ExoScript, [ref]$null, [ref]$null)
+        $cmds = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true) |
+                ForEach-Object { $_.GetCommandName() } | Where-Object { $_ }
+        foreach ($bad in 'Restore-RecoverableItems','Set-Mailbox','Start-ManagedFolderAssistant',
+                         'Set-RetentionPolicyTag','Remove-RetentionPolicyTag') {
+            $cmds | Should -Not -Contain $bad
+        }
+    }
+    It 'states the effective-vs-physical caveat rather than letting the numbers be misread' {
+        $src = Get-Content $ExoScript -Raw
+        $src | Should -Match 'EFFECTIVE policy'
+        $src | Should -Match 'PHYSICAL stamps'
+        $src | Should -Match 'difference between the two is expected'
+    }
+    It 'uses the EXO-only -PolicyTag filter for recoverable items' {
+        (Get-Content $ExoScript -Raw) | Should -Match '\$splat\.PolicyTag = \$PolicyTag'
+    }
+}

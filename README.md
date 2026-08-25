@@ -201,6 +201,24 @@ Das Tool entsperrt selbst und prueft die Typaufloesung: es meldet keinen Erfolg
 mehr, wenn die Assembly fehlt, und ein Zensus mit 0 Ordnern gilt als Fehler,
 nicht als sauberes Postfach.
 
+Gegenprobe aus Exchange Online (ohne EWS)
+-----------------------------------------
+In einer `Connect-ExchangeOnline`-Session - bewusst unabhaengig vom EWS-Tooling,
+damit es eine zweite Meinung ist:
+
+       .\Verify-MrmExoState.ps1 -Mailbox user@contoso.com
+       .\Verify-MrmExoState.ps1 -Mailbox user@contoso.com `
+           -PolicyTag d94993b5-e987-4275-8707-072057cfb2b8 -IncludeRecoverableItems
+
+Liefert (1) `Get-MailboxFolderStatistics -IncludeAnalysis` erweitert um
+Item-Zahlen, Groessen, aeltestes/neuestes Item und Gruppierung nach
+DeletePolicy/RetentionFlags, und (2) `Get-RecoverableItems` gruppiert nach
+LastParentPath, Item-Klasse und Loeschzeitpunkt - in EXO direkt nach
+`-PolicyTag` filterbar. Beides als CSV in `evidence\`.
+
+Wichtig: Die Ordnerstatistik zeigt die EFFEKTIVE Richtlinie, der EWS-Zensus die
+PHYSISCHEN Stempel. Abweichungen sind erwartet, kein Fehler.
+
 Zwei Laeufe vergleichen
 -----------------------
 Statt 20.000 CSV-Zeilen von Hand zu vergleichen:
