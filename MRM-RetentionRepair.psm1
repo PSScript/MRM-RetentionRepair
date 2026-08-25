@@ -617,13 +617,23 @@ function Install-MrmEwsManagedApi {
     } catch { }
 
     $uri = "https://www.nuget.org/api/v2/package/Microsoft.Exchange.WebServices/${Version}"
-    $pkg = Join-Path ([IO.Path]::GetTempPath()) ("Microsoft.Exchange.WebServices.${Version}.nupkg")
+    # NB: Windows PowerShell 5.1's Expand-Archive REFUSES any extension other
+    # than .zip ("'.nupkg' is not a supported archive file format"), while
+    # pwsh 7 accepts it. A nupkg IS a zip, so download it with a .zip name.
+    $pkg = Join-Path ([IO.Path]::GetTempPath()) ("Microsoft.Exchange.WebServices.${Version}.zip")
     $tmp = Join-Path ([IO.Path]::GetTempPath()) ("ewsnupkg_" + [Guid]::NewGuid().ToString('n'))
     Write-MrmLog -Level Info -Message "Downloading EWS Managed API ${Version} from nuget.org ..."
     Invoke-WebRequest -Uri $uri -OutFile $pkg -UseBasicParsing
 
     try {
-        Expand-Archive -Path $pkg -DestinationPath $tmp -Force
+        try {
+            Expand-Archive -Path $pkg -DestinationPath $tmp -Force
+        }
+        catch {
+            # Fallback for hosts where Expand-Archive is unavailable or picky
+            Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+            [System.IO.Compression.ZipFile]::ExtractToDirectory($pkg, $tmp)
+        }
         # nupkg layouts differ between versions - search instead of hardcoding
         $src = Get-ChildItem $tmp -Recurse -Filter 'Microsoft.Exchange.WebServices.dll' |
                Sort-Object { $_.FullName -notmatch '[\\/](40|net40)[\\/]' } |

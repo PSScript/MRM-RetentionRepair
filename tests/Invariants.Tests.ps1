@@ -522,3 +522,15 @@ Describe 'Assembly loading is resilient to zone blocks and corrupt copies' {
         (Get-Content $ga -Raw) | Should -Match '\*\.dll\s+binary'
     }
 }
+
+Describe 'NuGet download works on Windows PowerShell 5.1' {
+    It 'saves the package with a .zip extension (5.1 Expand-Archive rejects .nupkg)' {
+        $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
+        $src | Should -Match 'Microsoft\.Exchange\.WebServices\.\$\{Version\}\.zip'
+        $src | Should -Not -Match '\$\{Version\}\.nupkg"'
+    }
+    It 'falls back to ZipFile::ExtractToDirectory if Expand-Archive fails' {
+        $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
+        $src | Should -Match 'ZipFile\]::ExtractToDirectory'
+    }
+}
