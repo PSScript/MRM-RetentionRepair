@@ -47,6 +47,18 @@ Compatibility
   Pester 6.1.0 escaped-flow-control bug).
 
 
+Updating without ZIP juggling
+-----------------------------
+`./Update-MrmTooling.ps1` - uses `git pull` when this is a clone, otherwise the
+GitHub zipball. `-WhatIf` previews, `-Force` discards local tool-file edits,
+`-Ref` pins a tag/branch/commit. First install into an empty folder:
+
+       iwr "https://raw.githubusercontent.com/PSScript/MRM-RetentionRepair/main/Update-MrmTooling.ps1" -OutFile .\Update-MrmTooling.ps1 -UseBasicParsing; .\Update-MrmTooling.ps1 -UseZip
+
+`configs\`, `evidence\` and `lib\` are never overwritten; replaced tool files
+are backed up under `.backup\<timestamp>\` first. All scripts are parse-checked
+after the update.
+
 Usage (quickstart)
 ------------------
 1. **Create a config** (interactive; secrets prompted hidden and stored

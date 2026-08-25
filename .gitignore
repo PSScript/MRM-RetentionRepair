@@ -10,3 +10,4 @@ configs/*
 # The EWS Managed API is Microsoft's assembly - not redistributed here.
 # Install-MrmPrerequisites.ps1 fetches it from nuget.org into a stable location.
 lib/*.dll
+.backup/

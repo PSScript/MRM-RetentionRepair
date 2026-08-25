@@ -644,3 +644,31 @@ Describe 'Folder path normalization (live tenant used backslashes)' {
         ConvertTo-MrmFolderPath -RawPath '\Übersicht\Straßenbau' | Should -Be '/Übersicht/Straßenbau'
     }
 }
+
+Describe 'Self-updater' {
+    BeforeAll { $script:UpdaterPath = Join-Path (Join-Path $PSScriptRoot '..') 'Update-MrmTooling.ps1' }
+
+    It 'preserves configs, evidence and lib from being overwritten' {
+        $src = Get-Content $UpdaterPath -Raw
+        $src | Should -Match "PreservePaths = @\('configs', 'evidence', 'lib', '\.backup'\)"
+    }
+    It 'backs up replaced files before overwriting them' {
+        (Get-Content $UpdaterPath -Raw) | Should -Match 'Copy-Item \$dst \$bkp -Force'
+    }
+    It 'forces TLS 1.2 (5.1 defaults break against GitHub) and uses a .zip name' {
+        $src = Get-Content $UpdaterPath -Raw
+        $src | Should -Match 'Tls12'
+        $src | Should -Match 'mrm-update-\{0\}\.zip'
+    }
+    It 'refuses to clobber local edits unless -Force is given' {
+        (Get-Content $UpdaterPath -Raw) | Should -Match 'Re-run with -Force to discard them'
+    }
+    It 'warns that a loaded EWS assembly survives the update' {
+        (Get-Content $UpdaterPath -Raw) | Should -Match 'assemblies cannot be'
+    }
+    It 'parses cleanly' {
+        $errs = $null
+        [System.Management.Automation.Language.Parser]::ParseFile($UpdaterPath, [ref]$null, [ref]$errs) | Out-Null
+        $errs | Should -BeNullOrEmpty
+    }
+}

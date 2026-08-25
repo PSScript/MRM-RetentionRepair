@@ -51,6 +51,24 @@ Kompatibilität
   enthalten — Escaped-Flow-Control-Bug in Pester 6.1.0).
 
 
+Updates ohne ZIP-Gefummel
+-------------------------
+Im vorhandenen Verzeichnis (nutzt `git pull`, sonst den Zipball):
+
+       .\Update-MrmTooling.ps1
+       .\Update-MrmTooling.ps1 -WhatIf     # nur zeigen, was sich aendern wuerde
+       .\Update-MrmTooling.ps1 -Force      # lokale Aenderungen an Tool-Dateien verwerfen
+       .\Update-MrmTooling.ps1 -Ref v1.2   # auf Tag/Branch/Commit festnageln
+
+Erstinstallation in ein leeres Verzeichnis (Einzeiler):
+
+       iwr "https://raw.githubusercontent.com/PSScript/MRM-RetentionRepair/main/Update-MrmTooling.ps1" -OutFile .\Update-MrmTooling.ps1 -UseBasicParsing; .\Update-MrmTooling.ps1 -UseZip
+
+`configs\`, `evidence\` und `lib\` werden NIE ueberschrieben; ersetzte
+Tool-Dateien landen vorher unter `.backup\<Zeitstempel>\`. Nach dem Update
+werden alle Skripte geparst, und der Updater erinnert daran, die PowerShell-
+Session neu zu starten, falls die EWS-Assembly schon geladen war.
+
 Anleitung (Quickstart)
 ----------------------
 1. **Config anlegen** (interaktiv; Secret wird verdeckt abgefragt und
