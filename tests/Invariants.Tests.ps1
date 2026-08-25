@@ -753,3 +753,20 @@ Describe 'Repair script fail-fast (APPLY must never proceed on bad input)' {
         $RepairSrc | Should -Match 'APPLY requested but ZERO folders match target'
     }
 }
+
+Describe 'GATE: every shipped script must parse (a broken script was pushed once)' {
+    It 'parses every .ps1 and .psm1 we ship' {
+        # A patch introduced backslash-escaped quotes (PowerShell escapes with a
+        # backtick), the script no longer parsed, and it got pushed anyway.
+        # This test must run before any commit.
+        $root = Join-Path $PSScriptRoot '..'
+        $bad = @()
+        foreach ($f in (Get-ChildItem $root -Include '*.ps1','*.psm1' -Recurse |
+                        Where-Object { $_.FullName -notmatch '[\\/](lib|\.backup)[\\/]' })) {
+            $errs = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errs) | Out-Null
+            if ($errs) { $bad += "$($f.Name): $($errs[0].Message)" }
+        }
+        $bad | Should -BeNullOrEmpty
+    }
+}

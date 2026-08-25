@@ -86,8 +86,8 @@ if ($authMode -eq 'Config') {
 # Validate the target AFTER config resolution - it used to run before it, so a
 # config-supplied TargetRetentionId was still empty here.
 if ([string]::IsNullOrWhiteSpace($TargetRetentionId)) {
-    throw ("No TargetRetentionId. Supply it on the command line or as " +
-           "\"TargetRetentionId\" in the config. Refusing to run" +
+    throw ('No TargetRetentionId. Supply it on the command line or as ' +
+           '"TargetRetentionId" in the config. Refusing to run' +
            $(if ($Apply) { ' - and -Apply was requested, so this would have been a write run.' } else { '.' }))
 }
 $tgt = Test-MrmTargetRetentionId -TargetRetentionId $TargetRetentionId   # throws on protected/invalid
