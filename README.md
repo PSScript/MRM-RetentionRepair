@@ -15,6 +15,9 @@ Default **nicht bewiesen**).
       Invoke-MrmGraphParity.ps1       Phase 2A/2B — tokenbasiert ("oldschool"):
                                        rohes client_credentials + Invoke-RestMethod,
                                        NULL Modul-Abhängigkeiten (tokenhandler-Stil)
+      Install-MrmPrerequisites.ps1    einmalige Installation der EWS Managed API
+                                       von nuget.org an einen stabilen Ort
+                                       ausserhalb des Repos (+ Verifikation)
       Invoke-MrmTenantTagReport.ps1   Tenant-weiter READ-ONLY-Report physisch
                                        gestempelter Retention-Tags über viele
                                        Postfächer — modernisiertes ReportTagged.ps1
@@ -139,16 +142,25 @@ Lernkurve, Erfahrungen sammeln vor der Breite):
    und vergleicht (Verified). Unerwarteter Nachzustand stoppt das Postfach.
    Pro Postfach liegen Pre-/Post-Zensus + Backups unter evidence/tenant-repair/<mbx>/.
 
-Stolperstein Windows
---------------------
-Laedt die EWS-DLL nicht (`FileLoadException`, HRESULT 0x80131515), ist sie als
-"aus dem Internet" markiert:
+Voraussetzung: EWS Managed API
+------------------------------
+Einmalig installieren (laedt Microsoft.Exchange.WebServices von nuget.org,
+entsperrt die DLL und verifiziert, dass alle benoetigten Typen aufloesen):
 
-       Get-ChildItem .\lib\*.dll | Unblock-File
+       ./Install-MrmPrerequisites.ps1            # als Admin: maschinenweit
+       ./Install-MrmPrerequisites.ps1 -WhatIfPathsOnly   # nur anzeigen, nichts tun
 
-Das Tool entsperrt inzwischen selbst und prueft, ob der Typ wirklich aufloest --
-es meldet keinen Erfolg mehr, wenn die Assembly fehlt, und ein Zensus mit
-0 Ordnern gilt als Fehler, nicht als sauberes Postfach.
+Zielort in dieser Reihenfolge: vorhandene offizielle MSI-Installation
+(`Program Files\Microsoft\Exchange\Web Services\2.2`) > `%ProgramData%\MRM-RetentionRepair\lib`
+(erfordert erhoehte Rechte) > `%LOCALAPPDATA%\MRM-RetentionRepair\lib` >
+repo-lokales `lib\`. Zur Laufzeit wird dieselbe Reihenfolge durchsucht; fehlt
+alles, installiert das Tool automatisch nach.
+
+Laedt die DLL trotzdem nicht (`FileLoadException`, HRESULT 0x80131515), ist sie
+als "aus dem Internet" markiert -- `Get-ChildItem <lib>\*.dll | Unblock-File`.
+Das Tool entsperrt selbst und prueft die Typaufloesung: es meldet keinen Erfolg
+mehr, wenn die Assembly fehlt, und ein Zensus mit 0 Ordnern gilt als Fehler,
+nicht als sauberes Postfach.
 
 Leitplanken
 -----------

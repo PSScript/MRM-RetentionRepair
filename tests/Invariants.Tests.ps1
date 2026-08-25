@@ -481,3 +481,27 @@ Describe 'Never report an all-clear on a broken run' {
         $src | Should -Match 'Refusing to report an all-clear'
     }
 }
+
+Describe 'EWS assembly provisioning (NuGet install, stable location)' {
+    It 'exposes a search order that prefers an official MSI install over repo-local' {
+        $p = Get-MrmEwsInstallPath
+        $p.SearchOrder | Should -Not -BeNullOrEmpty
+        # repo-local must be the LAST resort
+        @($p.SearchOrder)[-1] | Should -Match 'lib[\\/]Microsoft\.Exchange\.WebServices\.dll$'
+        if ($p.MsiPath) { @($p.SearchOrder)[0] | Should -Be $p.MsiPath }
+    }
+    It 'is idempotent: an existing assembly is reused instead of re-downloaded' {
+        Mock -ModuleName MRM-RetentionRepair Invoke-WebRequest { throw 'must not download' }
+        { Install-MrmEwsManagedApi } | Should -Not -Throw
+        Should -Invoke -ModuleName MRM-RetentionRepair Invoke-WebRequest -Times 0
+    }
+    It 'pins the package version and negotiates TLS 1.2 for nuget.org' {
+        $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
+        $src | Should -Match 'api/v2/package/Microsoft\.Exchange\.WebServices/\$\{Version\}'
+        $src | Should -Match 'Tls12'   # PS 5.1 defaults to TLS 1.0/1.1; nuget.org refuses
+    }
+    It 'refuses an implausibly small download instead of shipping a broken assembly' {
+        $src = Get-Content (Join-Path (Join-Path $PSScriptRoot '..') 'MRM-RetentionRepair.psm1') -Raw
+        $src | Should -Match 'Downloaded assembly looks wrong'
+    }
+}

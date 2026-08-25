@@ -533,23 +533,122 @@ function Get-MrmAccessToken {
 # EWS bootstrap
 # ============================================================================
 
-function Install-MrmEwsManagedApi {
-    <# Downloads Microsoft.Exchange.WebServices 2.2.0 from NuGet and extracts
-       the net40 assembly. Verified to load under PowerShell 7 (.NET 8). #>
+function Get-MrmEwsInstallPath {
+    <# Where a machine-wide install of the EWS Managed API lives / should live.
+       Preference order:
+         1. official MSI location (Program Files) - if someone installed the
+            EWS Managed API 2.2 MSI, use that, do not duplicate it
+         2. machine-wide app dir  %ProgramData%\MRM-RetentionRepair\lib
+         3. per-user app dir      %LOCALAPPDATA%\MRM-RetentionRepair\lib
+            (used when the process is not elevated)
+         4. repo-local lib\      (portable fallback, e.g. Linux/pwsh)
+    #>
     [CmdletBinding()]
-    param([string]$Destination = (Join-Path $PSScriptRoot 'lib'))
+    [OutputType([object])]
+    param([switch]$ForWrite)
+
+    $msi = @(
+        'C:\Program Files\Microsoft\Exchange\Web Services\2.2\Microsoft.Exchange.WebServices.dll',
+        'C:\Program Files (x86)\Microsoft\Exchange\Web Services\2.2\Microsoft.Exchange.WebServices.dll'
+    ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+    $isWin = ($PSVersionTable.PSVersion.Major -lt 6) -or $IsWindows
+    $machine = if ($isWin -and $env:ProgramData)   { Join-Path $env:ProgramData  'MRM-RetentionRepair\lib' } else { $null }
+    $user    = if ($isWin -and $env:LOCALAPPDATA)  { Join-Path $env:LOCALAPPDATA 'MRM-RetentionRepair\lib' } else { $null }
+    $repo    = Join-Path $PSScriptRoot 'lib'
+
+    $elevated = $false
+    if ($isWin) {
+        try {
+            $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+            $elevated = ([Security.Principal.WindowsPrincipal]$id).IsInRole(
+                [Security.Principal.WindowsBuiltInRole]::Administrator)
+        } catch { $elevated = $false }
+    }
+
+    $writeDir = if ($ForWrite) {
+        if ($machine -and $elevated) { $machine } elseif ($user) { $user } else { $repo }
+    } else { $null }
+
+    return [pscustomobject]@{
+        MsiPath      = $msi
+        MachineDir   = $machine
+        UserDir      = $user
+        RepoDir      = $repo
+        IsElevated   = $elevated
+        WriteDir     = $writeDir
+        SearchOrder  = @($msi,
+                         $(if ($machine) { Join-Path $machine 'Microsoft.Exchange.WebServices.dll' }),
+                         $(if ($user)    { Join-Path $user    'Microsoft.Exchange.WebServices.dll' }),
+                         (Join-Path $repo 'Microsoft.Exchange.WebServices.dll')) | Where-Object { $_ }
+    }
+}
+
+function Install-MrmEwsManagedApi {
+    <# Downloads Microsoft.Exchange.WebServices from NuGet and installs the
+       net40 assembly into a stable location outside the repo (ProgramData when
+       elevated, otherwise LocalAppData). Idempotent, version-pinned, unblocks
+       the file and VERIFIES the assembly actually loads before returning. #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [string]$Version = '2.2.0',
+        [string]$Destination,
+        [switch]$Force
+    )
+    $paths = Get-MrmEwsInstallPath -ForWrite
+    if (-not $Destination) { $Destination = $paths.WriteDir }
+
+    if (-not $Force) {
+        $existing = $paths.SearchOrder | Where-Object { Test-Path $_ } | Select-Object -First 1
+        if ($existing) {
+            Write-MrmLog -Level Info -Message "EWS Managed API already present: ${existing}"
+            return $existing
+        }
+    }
+
     $dll = Join-Path $Destination 'Microsoft.Exchange.WebServices.dll'
-    if (Test-Path $dll) { return $dll }
     New-Item -ItemType Directory -Force -Path $Destination | Out-Null
-    $pkg = Join-Path ([IO.Path]::GetTempPath()) 'Microsoft.Exchange.WebServices.2.2.0.nupkg'
-    Invoke-WebRequest -Uri 'https://www.nuget.org/api/v2/package/Microsoft.Exchange.WebServices/2.2.0' -OutFile $pkg
+
+    # Windows PowerShell 5.1 defaults to TLS 1.0/1.1; nuget.org requires 1.2.
+    try {
+        [Net.ServicePointManager]::SecurityProtocol =
+            [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    } catch { }
+
+    $uri = "https://www.nuget.org/api/v2/package/Microsoft.Exchange.WebServices/${Version}"
+    $pkg = Join-Path ([IO.Path]::GetTempPath()) ("Microsoft.Exchange.WebServices.${Version}.nupkg")
     $tmp = Join-Path ([IO.Path]::GetTempPath()) ("ewsnupkg_" + [Guid]::NewGuid().ToString('n'))
-    Expand-Archive -Path $pkg -DestinationPath $tmp -Force
-    Copy-Item (Join-Path $tmp 'lib/40/Microsoft.Exchange.WebServices.dll') $dll -Force
-    Remove-Item $pkg, $tmp -Recurse -Force -ErrorAction SilentlyContinue
-    Write-MrmLog -Level Info -Message "EWS Managed API 2.2 assembly staged at ${dll}"
+    Write-MrmLog -Level Info -Message "Downloading EWS Managed API ${Version} from nuget.org ..."
+    Invoke-WebRequest -Uri $uri -OutFile $pkg -UseBasicParsing
+
+    try {
+        Expand-Archive -Path $pkg -DestinationPath $tmp -Force
+        # nupkg layouts differ between versions - search instead of hardcoding
+        $src = Get-ChildItem $tmp -Recurse -Filter 'Microsoft.Exchange.WebServices.dll' |
+               Sort-Object { $_.FullName -notmatch '[\\/](40|net40)[\\/]' } |
+               Select-Object -First 1
+        if (-not $src) { throw "Package ${Version} contains no Microsoft.Exchange.WebServices.dll" }
+        Copy-Item $src.FullName $dll -Force
+        # the XML doc + Auth dll are optional but harmless to bring along
+        foreach ($extra in @('Microsoft.Exchange.WebServices.Auth.dll')) {
+            $e = Get-ChildItem $tmp -Recurse -Filter $extra -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($e) { Copy-Item $e.FullName (Join-Path $Destination $extra) -Force }
+        }
+    }
+    finally {
+        Remove-Item $pkg -Force -ErrorAction SilentlyContinue
+        Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    try { if (Get-Command Unblock-File -ErrorAction SilentlyContinue) { Get-ChildItem "${Destination}\*.dll" | Unblock-File -ErrorAction SilentlyContinue } } catch { }
+
+    $fi = Get-Item $dll
+    if ($fi.Length -lt 100kb) { throw "Downloaded assembly looks wrong (size $($fi.Length) bytes): ${dll}" }
+    Write-MrmLog -Level Info -Message "EWS Managed API ${Version} installed: ${dll} ($([Math]::Round($fi.Length/1kb)) KB)"
     return $dll
 }
+
 
 function Import-MrmEwsAssembly {
     [CmdletBinding()]
@@ -1337,7 +1436,7 @@ Export-ModuleMember -Function @(
     'ConvertFrom-MrmRetentionFlags','ConvertTo-MrmFolderPath',
     'Test-MrmTargetRetentionId','Test-MrmWriteAllowed',
     'New-MrmClientAssertion','Get-MrmAccessToken',
-    'Install-MrmEwsManagedApi','Import-MrmEwsAssembly','Connect-MrmEwsService',
+    'Install-MrmEwsManagedApi','Get-MrmEwsInstallPath','Import-MrmEwsAssembly','Connect-MrmEwsService',
     'Get-MrmEwsPropertyDefinitions','Get-MrmFolderCensus','ConvertTo-MrmCensusRecord',
     'Get-MrmCensusSummary','Get-MrmItemAudit','Invoke-MrmEwsWithRetry',
     'Get-MrmFolderRawState','Invoke-MrmFolderUntag','Export-MrmEvidence',

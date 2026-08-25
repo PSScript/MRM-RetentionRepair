@@ -94,6 +94,19 @@ Get-MailboxFolderStatistics <mbx> -IncludeAnalysis |
 ./Invoke-MrmGraphParity.ps1 ... -ExperimentalWriteProbe -ProbeGraphFolderId <id> -IUnderstandThisIsAnExperiment
 ```
 
+## 4a. Prerequisite install (once per operator machine)
+
+```powershell
+./Install-MrmPrerequisites.ps1                 # elevated -> machine-wide
+./Install-MrmPrerequisites.ps1 -WhatIfPathsOnly # show locations, change nothing
+./Install-MrmPrerequisites.ps1 -Version 2.2.0 -Force   # force re-download
+```
+
+Pinned to Microsoft.Exchange.WebServices 2.2.0 on nuget.org, TLS 1.2 forced
+(Windows PowerShell 5.1 still defaults to 1.0/1.1 and nuget.org refuses those),
+size-checked, unblocked, and verified by resolving `ExchangeService`,
+`OAuthCredentials`, `ExtendedPropertyDefinition` and `FolderSchema::PolicyTag`.
+
 ## 4b. Troubleshooting: EWS assembly will not load
 
 `Add-Type` fails with `FileLoadException` / HRESULT **0x80131515** and every
