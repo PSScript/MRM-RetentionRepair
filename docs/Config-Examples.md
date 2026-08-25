@@ -75,7 +75,7 @@ den erzeugenden Benutzer auf der erzeugenden Maschine**. Erzeugen/rotieren mit
 | `PilotFolderPath` | nein | Repair | Gate-5-Pilot auf genau einen Ordner beschränken |
 | `OutputDirectory` / `EvidenceDirectory` | nein | alle / Mg | Evidence-Ablage |
 | `MailboxCsv` | nein | TenantTagReport | CSV mit Spalte Mailbox/UserPrincipalName/PrimarySmtpAddress/Mail |
-| `ThrottleDelayMs` | nein | TenantTagReport | Pause zwischen Postfächern (Default 250) |
+| `ThrottleDelayMs` | nein | TenantTagReport/-Repair | Pause zwischen Postfächern (Report 250 / Repair 500) |
 
 Priorität überall: **CLI-Parameter > Config-Wert > Skript-Default.**
 

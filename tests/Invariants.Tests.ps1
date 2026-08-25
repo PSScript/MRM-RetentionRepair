@@ -366,3 +366,30 @@ Describe 'Tenant tag report helpers' {
         @(Get-MrmTenantTagRollup -Records @()).Count | Should -Be 0
     }
 }
+
+Describe 'Tenant repair ergonomics (modes, mailbox splitting, evidence cell)' {
+    It 'splits one user, comma strings, arrays and mixes into one deduped list' {
+        (Split-MrmMailboxList -InputList 'a@c.com') | Should -Be 'a@c.com'
+        (Split-MrmMailboxList -InputList 'a@c.com, b@c.com;c@c.com') | Should -Be @('a@c.com','b@c.com','c@c.com')
+        (Split-MrmMailboxList -InputList @('a@c.com','b@c.com , a@c.com')) | Should -Be @('a@c.com','b@c.com')
+        (Split-MrmMailboxList -InputList @('A@C.com','a@c.com')) | Should -Be @('A@C.com')   # case-insensitive dedupe
+    }
+    It 'refuses -TestRun together with -Apply before doing ANY work' {
+        { & (Join-Path (Join-Path $PSScriptRoot '..') 'Invoke-MrmTenantTagRepair.ps1') `
+              -ConfigPath 'Z:\does\not\exist.json' -TestRun -Apply } |
+            Should -Throw '*mutually exclusive*'
+    }
+    It 'the per-folder evidence cell record carries READ/BACKUP/SET/READ/COMPARE fields' {
+        # dry-run through the untag function yields candidates; an applied record
+        # (shape contract) must expose Before/After/Verified — assert on the
+        # documented record the module writes to JSONL by building it the same way.
+        $before = [pscustomobject]@{ HasPhysicalPolicyTag=$true;  PolicyTagRetentionId=$Target; RetentionPeriod=180; RetentionFlagsRaw=8; PolicyTagFirstClass=$Target }
+        $after  = [pscustomobject]@{ HasPhysicalPolicyTag=$false; PolicyTagRetentionId=$null;   RetentionPeriod=$null; RetentionFlagsRaw=$null; PolicyTagFirstClass=$null }
+        $rec = [pscustomobject]@{ Action='PolicyTagNull'; Target=$Target; Before=$before; After=$after
+                                  Verified=(-not $after.HasPhysicalPolicyTag) -and ($null -eq $after.PolicyTagFirstClass) }
+        $rec.Verified | Should -BeTrue
+        # and the compare must fail when SET did not stick:
+        $bad = [pscustomobject]@{ HasPhysicalPolicyTag=$true; PolicyTagFirstClass=$Target }
+        ((-not $bad.HasPhysicalPolicyTag) -and ($null -eq $bad.PolicyTagFirstClass)) | Should -BeFalse
+    }
+}

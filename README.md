@@ -19,6 +19,11 @@ Default **nicht bewiesen**).
                                        gestempelter Retention-Tags über viele
                                        Postfächer — modernisiertes ReportTagged.ps1
                                        (gscales), bewusst ohne Mg-Modul
+      Invoke-MrmTenantTagRepair.ps1   Tenant-weites Nullen EINES physischen
+                                       PolicyTags über viele Postfächer —
+                                       DryRun (Default) -> -TestRun (gedeckelt)
+                                       -> -Apply; pro Ordner die Evidenz-Zelle
+                                       READ -> BACKUP -> SET -> READ -> COMPARE
       Invoke-MrmGraphParity.Mg.ps1    Phase 2A/2B — Microsoft.Graph-SDK-Variante:
                                        Connect-MgGraph / Invoke-MgGraphRequest
                                        (braucht nur Microsoft.Graph.Authentication)
@@ -98,6 +103,28 @@ Tag noch überall?"):
    Beispielpfade). -Resume überspringt bereits gescannte Postfächer.
    Wie im Original zählt nur der PHYSISCHE Stempel (Exists 0x3019/0x3018) —
    rein vererbte Tags erscheinen bewusst nicht.
+
+**Tenant-Repair** (Nullen des Tags über viele Postfächer — bewusst langsame
+Lernkurve, Erfahrungen sammeln vor der Breite):
+
+       # Stufe 1 — DryRun (Default): Kandidaten je Postfach, null Writes.
+       #   Modus 1: ein User, mehrere kommagetrennt, oder als Array — alles gleichwertig:
+       ./Invoke-MrmTenantTagRepair.ps1 -ConfigPath ./configs/TENANT-A.json `
+           -Mailbox 'a@contoso.com,b@contoso.com' -TargetRetentionId d94993b5-e987-4275-8707-072057cfb2b8
+
+       # Stufe 2 — Testlauf: schreibt, aber gedeckelt auf 1 Postfach x 1 Ordner (Default),
+       #   mit voller Evidenz-Zelle pro Ordner: READ -> BACKUP (JSONL) -> SET -> READ -> COMPARE (Verified)
+       ./Invoke-MrmTenantTagRepair.ps1 -ConfigPath ./configs/TENANT-A.json `
+           -Mailbox 'a@contoso.com,b@contoso.com' -TargetRetentionId d94993b5-... -TestRun
+
+       # Stufe 3 — Vollauf über ALLE User-Postfächer (Modus 2, Graph-Discovery ohne Mg):
+       ./Invoke-MrmTenantTagRepair.ps1 -ConfigPath ./configs/TENANT-A.json `
+           -AllMailboxes -TargetRetentionId d94993b5-... -Apply
+
+   -TestRun und -Apply schließen sich aus; jede Mutation prüft live vor dem
+   Write (Exact-Match-Invariante), sichert den Vorzustand als JSONL, liest nach
+   und vergleicht (Verified). Unerwarteter Nachzustand stoppt das Postfach.
+   Pro Postfach liegen Pre-/Post-Zensus + Backups unter evidence/tenant-repair/<mbx>/.
 
 Leitplanken
 -----------

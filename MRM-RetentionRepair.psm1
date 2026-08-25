@@ -213,6 +213,24 @@ function ConvertTo-MrmSafeFileName {
     return ([regex]::Replace($n, '[^A-Za-z0-9._\-]', '_'))
 }
 
+function Split-MrmMailboxList {
+    <# Ergonomics: accepts ONE user, several comma/semicolon-separated users in
+       one string, a real array, or any mix — returns a trimmed, deduplicated,
+       order-preserving list. "a@x.com, b@x.com" and @('a@x.com','b@x.com')
+       are equivalent. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyCollection()][string[]]$InputList)
+    $seen = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    $out  = [System.Collections.Generic.List[string]]::new()
+    foreach ($chunk in $InputList) {
+        foreach ($m in ($chunk -split '[,;]')) {
+            $t = $m.Trim()
+            if ($t -and $seen.Add($t)) { $out.Add($t) }
+        }
+    }
+    return $out
+}
+
 function Get-MrmGraphMailboxList {
     <# Tenant mailbox discovery via RAW Graph REST (no Microsoft.Graph module):
        GET /v1.0/users?$select=...&$top=999, follows @odata.nextLink, then
@@ -1231,6 +1249,6 @@ Export-ModuleMember -Function @(
     'Get-MrmEwsPropertyDefinitions','Get-MrmFolderCensus','ConvertTo-MrmCensusRecord',
     'Get-MrmCensusSummary','Get-MrmItemAudit','Invoke-MrmEwsWithRetry',
     'Get-MrmFolderRawState','Invoke-MrmFolderUntag','Export-MrmEvidence',
-    'Invoke-MrmGraphRequest','Invoke-MrmGraphCall','Protect-MrmSecretString','Unprotect-MrmSecretString','Get-MrmConfig','Resolve-MrmEffectiveSetting','ConvertTo-MrmSafeFileName','Get-MrmGraphMailboxList','Get-MrmTenantTagRollup','Get-MrmGraphFolderCensus','ConvertTo-MrmGraphCensusRecord',
+    'Invoke-MrmGraphRequest','Invoke-MrmGraphCall','Protect-MrmSecretString','Unprotect-MrmSecretString','Get-MrmConfig','Resolve-MrmEffectiveSetting','ConvertTo-MrmSafeFileName','Get-MrmGraphMailboxList','Get-MrmTenantTagRollup','Split-MrmMailboxList','Get-MrmGraphFolderCensus','ConvertTo-MrmGraphCensusRecord',
     'Compare-MrmCensusParity','Get-MrmGraphItemAudit','Invoke-MrmGraphWriteProbe'
 )

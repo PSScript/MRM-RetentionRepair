@@ -18,6 +18,11 @@ experiment gated & unproven by default).
                                        stamped retention tags across mailboxes —
                                        modernized ReportTagged.ps1 (gscales),
                                        deliberately without the Mg module
+      Invoke-MrmTenantTagRepair.ps1   tenant-wide nulling of ONE physical
+                                       PolicyTag across many mailboxes —
+                                       DryRun (default) -> -TestRun (capped)
+                                       -> -Apply; per-folder evidence cell
+                                       READ -> BACKUP -> SET -> READ -> COMPARE
       Invoke-MrmGraphParity.Mg.ps1    Phase 2A/2B — Microsoft.Graph SDK variant:
                                        Connect-MgGraph / Invoke-MgGraphRequest
                                        (requires only Microsoft.Graph.Authentication)
@@ -66,6 +71,11 @@ Gates, ordering (restore BEFORE MFA!) and rollback limits: [docs/RUNBOOK.md](doc
 `./Invoke-MrmTenantTagReport.ps1 -ConfigPath ./configs/TENANT-A.json -MailboxCsv ./mailboxes.csv [-FilterRetentionId <guid>] [-Resume]`
 or discovery via raw Graph REST (app permission User.Read.All, no Mg module): add `-DiscoverViaGraph`.
 Outputs per-mailbox JSON, a consolidated CSV and a tenant rollup (RetentionIds x folders x mailboxes x periods x flags). Physical stamps only (Exists 0x3019/0x3018), as in the original.
+
+**Tenant repair** (nulling the tag across mailboxes — deliberately slow learning curve):
+mailbox mode 1 = one user / comma-separated / array (`-Mailbox 'a@c.com,b@c.com'`), mode 2 = `-AllMailboxes` (raw Graph discovery, no Mg).
+Stages: DryRun (default, zero writes) -> `-TestRun` (writes, capped to 1 mailbox x 1 folder by default) -> `-Apply` (full). `-TestRun` and `-Apply` are mutually exclusive.
+Every mutation runs READ -> BACKUP (JSONL) -> SET (native PolicyTag=null) -> READ -> COMPARE (Verified); an unexpected post-write state stops that mailbox. Pre/post censuses + backups per mailbox under evidence/tenant-repair/<mbx>/.
 
 Run tests:  pwsh -c "Invoke-Pester -Path ./tests"
 Start here: docs/RUNBOOK.md
