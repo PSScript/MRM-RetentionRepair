@@ -22,13 +22,39 @@ param(
     [string]$Action,
 
     [string]$ConfigPath,
-    [string]$ConfigDirectory = (Join-Path $PSScriptRoot 'configs')
+    [string]$ConfigDirectory = (Join-Path $PSScriptRoot 'configs'),
+
+    # Supply the secret directly instead of being prompted. Useful in hosts
+    # where Read-Host -AsSecureString does not work (ISE popup, remoting,
+    # redirected stdin, CI). Example:
+    #   $s = Read-Host 'secret' -AsSecureString
+    #   ./Manage-MrmConfig.ps1 -Action Encrypt -ConfigPath x.json -ClientSecret $s
+    [securestring]$ClientSecret
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'MRM-RetentionRepair.psm1') -Force
 
 if (-not (Test-Path $ConfigDirectory)) { New-Item -ItemType Directory -Path $ConfigDirectory -Force | Out-Null }
+
+function Get-SecretInteractive {
+    <# Returns a SecureString or throws with an actionable message. Never
+       returns silently: some hosts (ISE, remoting, redirected stdin) make
+       Read-Host -AsSecureString return null/empty, which previously caused
+       this script to end without writing anything. #>
+    param([string]$Prompt = 'Client secret (input hidden)')
+    if ($ClientSecret) { return $ClientSecret }
+    $s = $null
+    try { $s = Read-Host $Prompt -AsSecureString } catch { $s = $null }
+    if ($null -eq $s -or $s.Length -eq 0) {
+        throw ("No secret was captured. This host did not return input from " +
+               "Read-Host -AsSecureString (ISE, remoting and redirected input " +
+               "behave this way). Re-run and pass it explicitly:`n" +
+               "    `$s = Read-Host 'secret' -AsSecureString`n" +
+               "    ./Manage-MrmConfig.ps1 -Action Encrypt -ConfigPath <path> -ClientSecret `$s")
+    }
+    return $s
+}
 
 function Read-OptionalValue {
     param([string]$Prompt, [string]$Default = '')
@@ -63,8 +89,7 @@ switch ($Action) {
                 $pw = Read-Host 'PFX password (input hidden; Enter = none)' -AsSecureString
                 if ($pw.Length -gt 0) { $cfg.CertificatePasswordEncrypted = Protect-MrmSecretString -Secret $pw }
             } else {
-                $sec = Read-Host 'Client secret (input hidden)' -AsSecureString
-                if ($sec.Length -eq 0) { throw 'No authentication material provided.' }
+                $sec = Get-SecretInteractive -Prompt 'Client secret (input hidden)'
                 $cfg.ClientSecretEncrypted = Protect-MrmSecretString -Secret $sec
                 Write-Host 'NOTE: client secret is DISCOURAGED — prefer certificates.' -ForegroundColor Yellow
             }
@@ -94,12 +119,21 @@ switch ($Action) {
             $changed = $true
         }
         if (-not $changed) {
-            $sec = Read-Host 'New client secret (input hidden)' -AsSecureString
-            if ($sec.Length -eq 0) { throw 'Nothing to encrypt.' }
+            $sec = Get-SecretInteractive -Prompt 'New client secret (input hidden)'
             $raw | Add-Member -NotePropertyName ClientSecretEncrypted -NotePropertyValue (Protect-MrmSecretString -Secret $sec) -Force
         }
+        # cert fields left empty by the template would otherwise look like an
+        # auth choice — drop them so the auth mode resolves unambiguously
+        foreach ($p in @('CertificateThumbprint','CertificatePath')) {
+            if ($raw.PSObject.Properties[$p] -and -not $raw.$p) { $raw.PSObject.Properties.Remove($p) }
+        }
         ($raw | ConvertTo-Json -Depth 5) | Set-Content -Path $ConfigPath -Encoding UTF8
-        Write-Host "Encrypted and saved: ${ConfigPath}" -ForegroundColor Green
+        # read back — never claim success without proof
+        $verify = Get-Content $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if (-not ($verify.PSObject.Properties['ClientSecretEncrypted'] -and $verify.ClientSecretEncrypted)) {
+            throw "Write-back verification FAILED: ${ConfigPath} has no ClientSecretEncrypted."
+        }
+        Write-Host "Encrypted and saved: ${ConfigPath} (ClientSecretEncrypted present, $($verify.ClientSecretEncrypted.Length) chars)" -ForegroundColor Green
     }
 
     'List' {

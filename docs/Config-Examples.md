@@ -4,6 +4,17 @@
 kopieren (`configs/<NAME>.json`), Werte eintragen, dann
 `./Manage-MrmConfig.ps1 -Action Encrypt -ConfigPath ./configs/<NAME>.json` —
 das fragt das Client Secret verdeckt ab und ergänzt `ClientSecretEncrypted`.
+Zeigt der Host keinen Prompt (ISE-Popup, Remoting, umgeleitete Eingabe), das
+Secret explizit übergeben — der Prompt wird dann übersprungen:
+
+```powershell
+$s = Read-Host 'secret' -AsSecureString
+./Manage-MrmConfig.ps1 -Action Encrypt -ConfigPath ./configs/<NAME>.json -ClientSecret $s
+```
+
+`Encrypt` verifiziert nach dem Schreiben, dass `ClientSecretEncrypted` wirklich
+in der Datei steht, und entfernt leer gebliebene `CertificateThumbprint`/
+`CertificatePath`-Felder, damit der Auth-Modus eindeutig auflöst.
 Eigene `configs/*.json` sind gitignored, nur `*.template.json` ist versioniert.
 
 Eine JSON-Datei pro Tenant/Run (Muster: `PSScript/Resend-GraphReplay`).

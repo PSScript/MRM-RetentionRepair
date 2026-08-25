@@ -1,5 +1,5 @@
 {
-    "_README": "Copy this file to configs/<YOURNAME>.json, fill in the values below, then run: ./Manage-MrmConfig.ps1 -Action Encrypt -ConfigPath ./configs/<YOURNAME>.json  (it will prompt for the client secret, hidden, and add ClientSecretEncrypted). Never put a real secret in this template.",
+    "_README": "Copy to configs/<YOURNAME>.json, fill in the values, then add the secret WITHOUT putting it in this file: ./Manage-MrmConfig.ps1 -Action Encrypt -ConfigPath ./configs/<YOURNAME>.json   -- if your host does not show a prompt (ISE, remoting, redirected input), pass it explicitly: $s = Read-Host 'secret' -AsSecureString ; ./Manage-MrmConfig.ps1 -Action Encrypt -ConfigPath ./configs/<YOURNAME>.json -ClientSecret $s",
 
     "TenantId": "00000000-0000-0000-0000-000000000000",
     "ClientId": "00000000-0000-0000-0000-000000000000",
